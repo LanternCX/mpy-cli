@@ -4,10 +4,17 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Sequence
+from typing import Protocol, Sequence
 
 from mpy_cli.backend.mpremote import CommandExecutionError, MpremoteBackend
-from mpy_cli.config import ConfigError, init_config, load_config
+from mpy_cli.config import (
+    ConfigError,
+    default_config,
+    init_config,
+    load_config,
+    save_config,
+)
+from mpy_cli.config_wizard import run_config_wizard
 from mpy_cli.executor import DeployExecutor
 from mpy_cli.gitdiff import GitDiffError, collect_git_changes
 from mpy_cli.ignore import IgnoreMatcher, init_ignore
@@ -15,6 +22,13 @@ from mpy_cli.logging import setup_logging
 from mpy_cli.planner import DeployPlan, build_plan
 from mpy_cli.runtime import ensure_runtime_layout
 from mpy_cli.scanner import list_local_files
+
+
+class PortScanner(Protocol):
+    """@brief 端口扫描接口协议。"""
+
+    def list_ports(self) -> list[str]:
+        """@brief 返回可用串口列表。"""
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -28,7 +42,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "init":
-        return _cmd_init(force=args.force)
+        return _cmd_init(force=args.force, interactive=not args.no_interactive)
+    if args.command == "config":
+        return _cmd_config()
     if args.command in {"plan", "deploy"}:
         return _cmd_plan_or_deploy(args)
 
@@ -46,6 +62,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     init_parser = subparsers.add_parser("init", help="初始化配置与运行目录")
     init_parser.add_argument("--force", action="store_true", help="覆盖已有初始化文件")
+    init_parser.add_argument(
+        "--no-interactive",
+        action="store_true",
+        help="跳过初始化后的交互式配置向导",
+    )
+
+    subparsers.add_parser("config", help="通过交互向导更新配置")
 
     for name in ("plan", "deploy"):
         cmd = subparsers.add_parser(name, help=f"{name} 模式")
@@ -59,13 +82,50 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _cmd_init(force: bool) -> int:
+def _cmd_init(force: bool, interactive: bool) -> int:
     """@brief 执行 init 子命令。"""
 
-    init_config(Path(".mpy-cli.toml"), overwrite=force)
+    config_path = Path(".mpy-cli.toml")
+    init_config(config_path, overwrite=force)
     init_ignore(Path(".mpyignore"), overwrite=force)
     ensure_runtime_layout(Path(".mpy-cli"))
+
+    if interactive:
+        try:
+            current = load_config(config_path)
+        except ConfigError:
+            current = default_config()
+
+        scanner = MpremoteBackend(binary=current.mpremote_binary)
+        updated = run_config_wizard(current, scanner=scanner)
+        save_config(config_path, updated)
+        init_ignore(Path(updated.ignore_file))
+        ensure_runtime_layout(Path(updated.runtime_dir))
+        print("初始化完成并写入交互式配置")
+        return 0
+
     print("初始化完成：.mpy-cli.toml / .mpyignore / .mpy-cli/")
+    return 0
+
+
+def _cmd_config() -> int:
+    """@brief 执行配置向导子命令。"""
+
+    config_path = Path(".mpy-cli.toml")
+    init_config(config_path)
+
+    try:
+        current = load_config(config_path)
+    except ConfigError:
+        current = default_config()
+
+    scanner = MpremoteBackend(binary=current.mpremote_binary)
+    updated = run_config_wizard(current, scanner=scanner)
+    save_config(config_path, updated)
+    init_ignore(Path(updated.ignore_file))
+    ensure_runtime_layout(Path(updated.runtime_dir))
+
+    print("配置已更新，可直接执行 plan/deploy")
     return 0
 
 
@@ -89,9 +149,13 @@ def _cmd_plan_or_deploy(args: argparse.Namespace) -> int:
             "请选择同步模式", ["incremental", "full"], default=cfg.sync.mode
         )
 
-    port = args.port or cfg.serial_port
-    if interactive and not port:
-        port = _ask_text("请输入设备串口（例如 /dev/ttyACM0）")
+    backend = MpremoteBackend(binary=cfg.mpremote_binary)
+    port = _resolve_port(
+        arg_port=args.port,
+        config_port=cfg.serial_port,
+        interactive=interactive,
+        scanner=backend,
+    )
 
     if not port:
         print("缺少串口参数，请通过 --port 或配置文件提供")
@@ -131,14 +195,15 @@ def _cmd_plan_or_deploy(args: argparse.Namespace) -> int:
             print("已取消全量部署")
             return 1
 
-    backend = MpremoteBackend(binary=cfg.mpremote_binary)
     try:
         backend.ensure_available()
     except CommandExecutionError as exc:
         print(str(exc))
         return 1
 
-    report = DeployExecutor(backend=backend).execute(plan=plan, port=port)
+    report = DeployExecutor(backend=backend, logger=logger).execute(
+        plan=plan, port=port
+    )
     logger.info(
         "部署完成: success=%s failure=%s", report.success_count, report.failure_count
     )
@@ -177,6 +242,58 @@ def _print_plan(plan: DeployPlan) -> None:
         print(
             f"部署计划({plan.mode}) wipe={wipe_count} upload={upload_count} delete={delete_count}"
         )
+
+
+def _resolve_port(
+    arg_port: str | None,
+    config_port: str | None,
+    interactive: bool,
+    scanner: PortScanner,
+) -> str | None:
+    """@brief 解析端口来源优先级。
+
+    @param arg_port 命令行端口参数。
+    @param config_port 配置文件端口。
+    @param interactive 是否交互模式。
+    @param scanner 端口扫描器。
+    @return 最终端口，若无则返回 None。
+    """
+
+    if arg_port:
+        return arg_port
+    if config_port:
+        return config_port
+    if not interactive:
+        return None
+
+    scanned = _scan_and_select_port(scanner)
+    if scanned:
+        return scanned
+
+    print("未扫描到可用设备端口，将回退到手动输入")
+    manual = _ask_text("请输入设备串口（例如 /dev/ttyACM0 或 COM3）")
+    return manual or None
+
+
+def _scan_and_select_port(scanner: PortScanner) -> str | None:
+    """@brief 扫描并选择端口。"""
+
+    try:
+        ports = scanner.list_ports()
+    except Exception:  # noqa: BLE001
+        return None
+
+    if not ports:
+        return None
+
+    if len(ports) == 1:
+        only_port = ports[0]
+        if _ask_confirm(f"检测到端口 {only_port}，是否使用该端口？"):
+            return only_port
+        return None
+
+    selected = _ask_select("扫描到多个设备端口，请选择", ports, default=ports[0])
+    return selected or None
 
 
 def _ask_select(message: str, choices: list[str], default: str) -> str:

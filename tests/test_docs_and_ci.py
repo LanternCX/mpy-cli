@@ -3,19 +3,54 @@
 from pathlib import Path
 
 
-def test_docs_are_split_user_and_developer() -> None:
-    """@brief User docs and developer docs should both exist."""
+def test_docs_entrypoints() -> None:
+    """@brief README 快速开始和开发文档入口应存在。"""
     assert Path("README.md").exists()
-    assert Path("docs/user-guide.md").exists()
     assert Path("docs/developer-guide.md").exists()
-    assert Path("docs/deployment.md").exists()
 
 
-def test_release_workflow_exists() -> None:
-    """@brief Tag release workflow should be present and draft enabled."""
+def test_release_workflow_is_tag_to_draft_only() -> None:
+    """@brief Tag push workflow 应只做测试并创建 draft release。"""
     workflow = Path(".github/workflows/release.yml")
     assert workflow.exists()
 
     content = workflow.read_text(encoding="utf-8")
     assert "tags:" in content
     assert "draft: true" in content
+    assert "package:" not in content
+
+
+def test_readme_mentions_interactive_port_scan() -> None:
+    """@brief README 应说明交互模式下会扫描端口。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+    assert "未提供" in content
+    assert "--port" in content
+    assert "自动扫描" in content
+
+
+def test_readme_mentions_config_wizard_command() -> None:
+    """@brief README 应说明可通过 config 命令重配。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+    assert "mpy-cli config" in content
+    assert "无需手动编辑" in content
+
+
+def test_readme_lists_all_cli_parameters() -> None:
+    """@brief README 应覆盖所有核心命令参数。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+
+    for token in [
+        "mpy-cli init",
+        "mpy-cli config",
+        "mpy-cli plan",
+        "mpy-cli deploy",
+        "--force",
+        "--no-interactive",
+        "--mode",
+        "--port",
+        "--yes",
+    ]:
+        assert token in content

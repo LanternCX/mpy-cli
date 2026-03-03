@@ -62,6 +62,19 @@ def init_config(config_path: Path, overwrite: bool = False) -> None:
     config_path.write_text(DEFAULT_CONFIG_TEXT, encoding="utf-8")
 
 
+def default_config() -> AppConfig:
+    """@brief 返回默认应用配置。"""
+
+    return AppConfig(
+        serial_port=None,
+        ignore_file=".mpyignore",
+        runtime_dir=".mpy-cli",
+        source_dir=".",
+        mpremote_binary="mpremote",
+        sync=SyncConfig(mode="incremental"),
+    )
+
+
 def load_config(config_path: Path) -> AppConfig:
     """@brief 读取并校验配置。
 
@@ -85,6 +98,23 @@ def load_config(config_path: Path) -> AppConfig:
         mpremote_binary=_read_str(data, "mpremote_binary", default="mpremote"),
         sync=SyncConfig(mode=mode),
     )
+
+
+def save_config(config_path: Path, config: AppConfig) -> None:
+    """@brief 将配置对象写回 TOML 文件。"""
+
+    serial_port = config.serial_port or ""
+    text = (
+        "# mpy-cli 配置文件\n"
+        f"serial_port = {serial_port!r}\n"
+        f"ignore_file = {config.ignore_file!r}\n"
+        f"runtime_dir = {config.runtime_dir!r}\n"
+        f"source_dir = {config.source_dir!r}\n"
+        f"mpremote_binary = {config.mpremote_binary!r}\n\n"
+        "[sync]\n"
+        f"mode = {config.sync.mode!r}\n"
+    )
+    config_path.write_text(text, encoding="utf-8")
 
 
 def _read_sync_mode(data: dict) -> Literal["full", "incremental"]:
