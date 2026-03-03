@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mpy-cli"
+version = "0.1.0"
+description = "MicroPython interactive deployment CLI based on mpremote"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "questionary>=2.0.1",
+  "rich>=13.7.0",
+  "tomli>=2.0.1; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4.0",
+]
+
+[project.scripts]
+mpy-cli = "mpy_cli.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["mpy_cli*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
