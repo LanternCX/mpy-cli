@@ -8,6 +8,9 @@ __pycache__/
 venv/
 
 .mpy-cli/
+.mpy-cli.toml
+.mpyignore
+*.egg-info/
 release/
 dist/
 build/
