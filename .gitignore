@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+.venv/
+venv/
+
+.mpy-cli/
+.mpy-cli.toml
+.mpyignore
+*.egg-info/
+release/
+dist/
+build/

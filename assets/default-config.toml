@@ -1,0 +1,8 @@
+serial_port = ""
+ignore_file = ".mpyignore"
+runtime_dir = ".mpy-cli"
+source_dir = "."
+mpremote_binary = "mpremote"
+
+[sync]
+mode = "incremental"
