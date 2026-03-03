@@ -23,13 +23,17 @@
 - 使用 Git Flow：`main`（稳定）+ `dev`（开发）。
 - 提交信息使用 Angular Commit 规范。
 - 每次 commit 前必须先与维护者确认。
-- 每次 commit 必须携带：
+- 如果你使用 Agent 开发每次 commit 必须携带 Agent 信息，例如：
 
 ```text
 Co-authored-by: opencode-agent[bot] <opencode-agent[bot]@users.noreply.github.com>
 ```
 
 ## Agent 规范
+
+建议使用 [我的 Superpowers Fork](https://github.com/LanternCX/superpowers) 开发
+
+需要遵守 TDD 工作流
 
 - 项目技能目录：`.opencode/skills`
 - 当前技能：

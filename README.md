@@ -224,6 +224,8 @@ python3 -m pip install mpremote
 
 ---
 
-## 开发文档
+## Contribute
 
-- 开发与规范说明：`docs/developer-guide.md`
+开发与规范说明：`docs/developer-guide.md`
+
+本仓库采用 GPL-3.0 协议开源，如果用于竞赛目的可酌情在赛后遵守协议。
