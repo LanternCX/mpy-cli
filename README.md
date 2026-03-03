@@ -75,7 +75,9 @@ mpy-cli init
 
 - `.mpy-cli.toml`
 - `.mpyignore`
-- `.mpy-cli/`（运行日志和运行时数据库）
+- `.mpy-cli/`（运行目录）
+
+详细参数参见[CLI 参数总览](#cli-params)
 
 ### 6) 后续重配（可选）
 
@@ -85,18 +87,33 @@ mpy-cli init
 mpy-cli config
 ```
 
-该命令会再次进入交互式配置向导，无需手动编辑 `.mpy-cli.toml`。
+详细参数参见[CLI 参数总览](#cli-params)
 
-### 7) 计划与部署
+### 7) 计划部署
 
-未提供 `--port` 且处于交互模式时，工具会先自动扫描设备端口并让你选择。
+预览部署操作，防止程序产生意料之外的行为
 
 ```bash
 mpy-cli plan
+```
+
+详细参数参见[CLI 参数总览](#cli-params)
+
+### 8) 部署到 MicroPython 端
+
+预览部署操作，防止程序产生意料之外的行为
+
+```bash
 mpy-cli deploy
 ```
 
-> 全量模式有二次确认，因为会清空设备文件根目录。
+详细参数参见[CLI 参数总览](#cli-params)
+
+如果后续想要进行无交互式的部署，可以执行
+
+```bash
+mpy-cli deploy --no-interactive --yes
+```
 
 ---
 
@@ -104,11 +121,10 @@ mpy-cli deploy
 
 如果你要把 `mpy-cli` 安装到另一个项目（例如 `SmartCar2026-TransportCar`）里使用，推荐在该项目自己的虚拟环境中安装：
 
-```bash
-# TARGET_PROJECT_PATH: 你要安装并使用 mpy-cli 的目标项目目录
-# 中文：你要安装并使用 mpy-cli 的目标项目目录
-# SOURCE_MPY_CLI_PATH: 本地 mpy-cli 源码仓库路径（作为安装源）
+- `TARGET_PROJECT_PATH`: 你要安装并使用 mpy-cli 的目标项目目录
+- `SOURCE_MPY_CLI_PATH`: 本地 mpy-cli 源码仓库路径（作为安装源）
 
+```bash
 cd <TARGET_PROJECT_PATH>
 python3 -m venv .venv
 source .venv/bin/activate
@@ -120,6 +136,7 @@ python3 -m pip install <SOURCE_MPY_CLI_PATH>
 安装后可直接在该项目环境中使用：
 
 ```bash
+mpy-cli -h
 mpy-cli init
 mpy-cli config
 mpy-cli plan
@@ -137,6 +154,7 @@ python3 -m pip install -e <SOURCE_MPY_CLI_PATH>
 
 ---
 
+<span id="cli-params"></span>
 ## CLI 参数总览
 
 下面列出当前可用命令和参数，便于查阅。
@@ -196,9 +214,13 @@ python3 -m pip install mpremote
 - 检查串口号（如 `/dev/ttyACM0`、`COM3`）
 - 关闭占用串口的软件（如 Thonny）
 
-### 3) 不确定会同步哪些文件
+### 3) 我不确定会同步哪些文件
 
 先执行 `mpy-cli plan ...` 查看计划，再执行 `deploy`。
+
+### 4) 我不知道串口号
+
+参见 Thonny 中的设备串口号（圆括号内的内容）。
 
 ---
 
