@@ -119,7 +119,7 @@ mpy-cli deploy --no-interactive --yes
 
 ## 在其他项目中安装为命令行工具
 
-如果你要把 `mpy-cli` 安装到另一个项目（例如 `SmartCar2026-TransportCar`）里使用，推荐在该项目自己的虚拟环境中安装：
+如果你要把 `mpy-cli` 安装到另一个项目里使用，推荐在该项目自己的虚拟环境中安装：
 
 - `TARGET_PROJECT_PATH`: 你要安装并使用 mpy-cli 的目标项目目录
 - `SOURCE_MPY_CLI_PATH`: 本地 mpy-cli 源码仓库路径（作为安装源）
