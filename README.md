@@ -222,6 +222,12 @@ python3 -m pip install mpremote
 
 参见 Thonny 中的设备串口号（圆括号内的内容）。
 
+### 5) 为什么选择 mpy-cli？
+
+搭配 stubs，例如在智能车竞赛中使用我的项目[micropython-smartcar-stubs](https://github.com/LanternCX/micropython-smartcar-stubs)。
+
+可以实现完全无 thonny 开发 MicroPython 项目。
+
 ---
 
 ## Contribute
