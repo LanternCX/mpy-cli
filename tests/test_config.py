@@ -24,6 +24,7 @@ def test_init_config_creates_defaults(tmp_path: Path) -> None:
     assert cfg.sync.mode == "incremental"
     assert cfg.ignore_file == ".mpyignore"
     assert cfg.runtime_dir == ".mpy-cli"
+    assert cfg.device_upload_dir == ""
 
 
 def test_load_config_rejects_invalid_sync_mode(tmp_path: Path) -> None:
@@ -56,6 +57,7 @@ def test_save_config_round_trip(tmp_path: Path) -> None:
         runtime_dir=".mpy-cli",
         source_dir="src",
         mpremote_binary="mpremote",
+        device_upload_dir="apps/demo",
         sync=SyncConfig(mode="full"),
     )
 

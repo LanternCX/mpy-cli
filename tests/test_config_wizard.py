@@ -27,6 +27,7 @@ def test_wizard_selects_scanned_port(monkeypatch) -> None:  # noqa: ANN001
         runtime_dir=".mpy-cli",
         source_dir=".",
         mpremote_binary="mpremote",
+        device_upload_dir="",
         sync=SyncConfig(mode="incremental"),
     )
 
@@ -42,6 +43,7 @@ def test_wizard_selects_scanned_port(monkeypatch) -> None:  # noqa: ANN001
     updated = run_config_wizard(current, FakeScanner(ports=["/dev/ttyACM0"]))
 
     assert updated.serial_port == "/dev/ttyACM0"
+    assert updated.device_upload_dir == ""
 
 
 def test_wizard_falls_back_to_manual_port(monkeypatch) -> None:  # noqa: ANN001
@@ -53,12 +55,18 @@ def test_wizard_falls_back_to_manual_port(monkeypatch) -> None:  # noqa: ANN001
         runtime_dir=".mpy-cli",
         source_dir=".",
         mpremote_binary="mpremote",
+        device_upload_dir="",
         sync=SyncConfig(mode="incremental"),
     )
 
+    def fake_ask_text(message: str, default: str = "") -> str:
+        if "默认设备端口" in message:
+            return "COM7"
+        return default
+
     monkeypatch.setattr(
         "mpy_cli.config_wizard._ask_text",
-        lambda *_args, default="": "COM7" if not default else default,
+        fake_ask_text,
     )
     monkeypatch.setattr(
         "mpy_cli.config_wizard._ask_select",
@@ -68,3 +76,4 @@ def test_wizard_falls_back_to_manual_port(monkeypatch) -> None:  # noqa: ANN001
     updated = run_config_wizard(current, FakeScanner(ports=[]))
 
     assert updated.serial_port == "COM7"
+    assert updated.device_upload_dir == ""

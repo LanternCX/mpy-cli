@@ -71,6 +71,8 @@ mpy-cli init
 
 `init` 会进入交互式配置向导（可扫描设备端口并选择），无需手动编辑配置文件。
 
+在 `plan/deploy` 交互模式下，如果未提供 `--port`，会自动扫描可用端口并提示选择。
+
 初始化后会生成：
 
 - `.mpy-cli.toml`
@@ -81,7 +83,7 @@ mpy-cli init
 
 ### 6) 后续重配（可选）
 
-如果你后续想修改端口、同步模式、运行目录等配置，直接执行：
+如果你后续想修改端口、同步模式、运行目录、设备上传目录等配置，直接执行：
 
 ```bash
 mpy-cli config
@@ -176,6 +178,12 @@ mpy-cli config
 
 - 无额外参数。
 - 进入交互式配置向导，更新 `.mpy-cli.toml`。
+
+常用配置项说明：
+
+- `device_upload_dir`：设备端上传目录前缀，留空表示设备根目录。
+- 当 `device_upload_dir = "apps/demo"` 时，本地 `main.py` 会上传到设备 `:apps/demo/main.py`。
+- `full` 模式会清空该上传目录，而不是整机设备根目录。
 
 ### `mpy-cli plan`
 

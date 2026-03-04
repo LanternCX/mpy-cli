@@ -97,6 +97,7 @@ def test_config_command_updates_existing_config(tmp_path: Path, monkeypatch) -> 
         runtime_dir=".mpy-cli",
         source_dir=".",
         mpremote_binary="mpremote",
+        device_upload_dir="apps/demo",
         sync=SyncConfig(mode="full"),
     )
 
@@ -110,3 +111,4 @@ def test_config_command_updates_existing_config(tmp_path: Path, monkeypatch) -> 
     content = (tmp_path / ".mpy-cli.toml").read_text(encoding="utf-8")
     assert "COM5" in content
     assert "mode = 'full'" in content
+    assert "device_upload_dir = 'apps/demo'" in content

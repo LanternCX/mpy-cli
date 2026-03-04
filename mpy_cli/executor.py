@@ -79,7 +79,7 @@ class DeployExecutor:
         """@brief 分发单条操作到后端。"""
 
         if operation.op_type == "wipe":
-            self.backend.wipe_root(port)
+            self.backend.wipe_root(port, operation.remote_path)
             return
 
         if operation.op_type == "upload":

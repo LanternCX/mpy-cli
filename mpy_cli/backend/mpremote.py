@@ -78,10 +78,13 @@ class MpremoteBackend:
             f":{remote}",
         ]
 
-    def build_wipe_command(self, port: str) -> list[str]:
-        """@brief 构建设备根目录清空命令。"""
+    def build_wipe_command(self, port: str, target_dir: str | None = None) -> list[str]:
+        """@brief 构建设备目录清空命令。"""
+
+        normalized_target_dir = _normalize_remote_dir(target_dir)
 
         wipe_script = (
+            f"target_raw = {normalized_target_dir!r}\n"
             "import os\n"
             "def _clean(path):\n"
             "    for name in os.listdir(path):\n"
@@ -99,7 +102,18 @@ class MpremoteBackend:
             "    roots = os.listdir('/')\n"
             "except OSError:\n"
             "    roots = []\n"
-            "if 'flash' in roots:\n"
+            "if target_raw:\n"
+            "    if target_raw.startswith('/'):\n"
+            "        target = target_raw\n"
+            "    elif 'flash' in roots:\n"
+            "        target = '/flash/' + target_raw\n"
+            "    else:\n"
+            "        target = '/' + target_raw\n"
+            "    try:\n"
+            "        _clean(target)\n"
+            "    except OSError:\n"
+            "        pass\n"
+            "elif 'flash' in roots:\n"
             "    _clean('/flash')\n"
             "else:\n"
             "    _clean('/')\n"
@@ -130,10 +144,10 @@ class MpremoteBackend:
         cmd = self.build_delete_command(port=port, remote=remote_path)
         return self._run(cmd)
 
-    def wipe_root(self, port: str) -> CommandResult:
-        """@brief 清空设备根目录文件。"""
+    def wipe_root(self, port: str, target_dir: str | None = None) -> CommandResult:
+        """@brief 清空设备目标目录文件。"""
 
-        cmd = self.build_wipe_command(port=port)
+        cmd = self.build_wipe_command(port=port, target_dir=target_dir)
         return self._run(cmd)
 
     def _run(self, command: list[str]) -> CommandResult:
@@ -219,3 +233,24 @@ def _looks_like_port(token: str) -> bool:
     return (
         token.startswith("/dev/") or token.startswith("tty") or upper.startswith("COM")
     )
+
+
+def _normalize_remote_dir(target_dir: str | None) -> str:
+    """@brief 归一化设备目录路径，保留绝对路径语义。"""
+
+    if target_dir is None:
+        return ""
+
+    raw = target_dir.strip().replace("\\", "/")
+    if raw in {"", ".", "/"}:
+        return ""
+
+    is_absolute = raw.startswith("/")
+    parts = [part for part in raw.split("/") if part and part != "."]
+    if not parts:
+        return ""
+
+    normalized = "/".join(parts)
+    if is_absolute:
+        return f"/{normalized}"
+    return normalized

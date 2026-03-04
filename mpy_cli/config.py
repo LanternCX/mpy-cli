@@ -17,6 +17,7 @@ serial_port = ""
 ignore_file = ".mpyignore"
 runtime_dir = ".mpy-cli"
 source_dir = "."
+device_upload_dir = ""
 mpremote_binary = "mpremote"
 
 [sync]
@@ -46,6 +47,7 @@ class AppConfig:
     ignore_file: str
     runtime_dir: str
     source_dir: str
+    device_upload_dir: str
     mpremote_binary: str
     sync: SyncConfig
 
@@ -70,6 +72,7 @@ def default_config() -> AppConfig:
         ignore_file=".mpyignore",
         runtime_dir=".mpy-cli",
         source_dir=".",
+        device_upload_dir="",
         mpremote_binary="mpremote",
         sync=SyncConfig(mode="incremental"),
     )
@@ -95,6 +98,7 @@ def load_config(config_path: Path) -> AppConfig:
         ignore_file=_read_str(data, "ignore_file", default=".mpyignore"),
         runtime_dir=_read_str(data, "runtime_dir", default=".mpy-cli"),
         source_dir=_read_str(data, "source_dir", default="."),
+        device_upload_dir=_read_str(data, "device_upload_dir", default="").strip(),
         mpremote_binary=_read_str(data, "mpremote_binary", default="mpremote"),
         sync=SyncConfig(mode=mode),
     )
@@ -110,6 +114,7 @@ def save_config(config_path: Path, config: AppConfig) -> None:
         f"ignore_file = {config.ignore_file!r}\n"
         f"runtime_dir = {config.runtime_dir!r}\n"
         f"source_dir = {config.source_dir!r}\n"
+        f"device_upload_dir = {config.device_upload_dir!r}\n"
         f"mpremote_binary = {config.mpremote_binary!r}\n\n"
         "[sync]\n"
         f"mode = {config.sync.mode!r}\n"

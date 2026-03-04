@@ -180,7 +180,11 @@ def _cmd_plan_or_deploy(args: argparse.Namespace) -> int:
         return 1
 
     plan = build_plan(
-        mode=mode, local_files=local_files, changes=changes, matcher=matcher
+        mode=mode,
+        local_files=local_files,
+        changes=changes,
+        matcher=matcher,
+        remote_base_dir=cfg.device_upload_dir,
     )
     _print_plan(plan)
 
@@ -191,7 +195,9 @@ def _cmd_plan_or_deploy(args: argparse.Namespace) -> int:
         if not _ask_confirm("确认执行部署？"):
             print("已取消部署")
             return 1
-        if mode == "full" and not _ask_confirm("全量模式将清空设备根目录，确认继续？"):
+        if mode == "full" and not _ask_confirm(
+            "全量模式将清空目标上传目录，确认继续？"
+        ):
             print("已取消全量部署")
             return 1
 

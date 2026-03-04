@@ -35,6 +35,10 @@ def run_config_wizard(
     ignore_file = _ask_text("请输入忽略文件路径", default=current.ignore_file)
     runtime_dir = _ask_text("请输入运行目录", default=current.runtime_dir)
     source_dir = _ask_text("请输入源代码目录", default=current.source_dir)
+    device_upload_dir = _ask_text(
+        "请输入设备上传目录（留空表示设备根目录）",
+        default=current.device_upload_dir,
+    )
     mpremote_binary = _ask_text(
         "请输入 mpremote 命令名", default=current.mpremote_binary
     )
@@ -44,6 +48,7 @@ def run_config_wizard(
         ignore_file=ignore_file.strip() or current.ignore_file,
         runtime_dir=runtime_dir.strip() or current.runtime_dir,
         source_dir=source_dir.strip() or current.source_dir,
+        device_upload_dir=device_upload_dir.strip(),
         mpremote_binary=mpremote_binary.strip() or current.mpremote_binary,
         sync=SyncConfig(
             mode=mode if mode in {"incremental", "full"} else current.sync.mode
