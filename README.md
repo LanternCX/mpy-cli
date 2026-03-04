@@ -230,4 +230,4 @@ python3 -m pip install mpremote
 
 本仓库采用 GPL-3.0 协议开源，如果用于竞赛目的可酌情在赛后遵守协议。
 
-欢迎提交 Issue/PR。
+欢迎 Issue / PR / Star。
