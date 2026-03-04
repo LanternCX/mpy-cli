@@ -208,6 +208,14 @@ mpy-cli deploy [--mode {incremental,full}] [--port PORT] [--no-interactive] [--y
 - `--no-interactive`：禁用交互提问。
 - `--yes`：跳过执行前确认（包括全量模式二次确认）。
 
+推荐用法：
+
+```bash
+mpy-cli deploy --no-interactive --yes
+```
+
+进行 `config` 之后直接无交互烧入
+
 ### `mpy-cli upload`
 
 ```bash
@@ -219,6 +227,14 @@ mpy-cli upload [--local LOCAL] [--remote REMOTE] [--port PORT] [--no-interactive
 - `--port`：指定设备端口。
 - `--no-interactive`：禁用交互提问；此时需显式提供 `--local` 和 `--remote`。
 - `--yes`：跳过执行前确认。
+
+推荐用法：
+
+```bash
+mpy-cli upload --local <LOCAL>
+```
+
+填写字段 `LOCAL` 指定本地文件路径之后交互式确认远程路径
 
 ---
 
