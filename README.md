@@ -143,6 +143,7 @@ mpy-cli init
 mpy-cli config
 mpy-cli plan
 mpy-cli deploy
+mpy-cli upload
 ```
 
 说明：
@@ -206,6 +207,18 @@ mpy-cli deploy [--mode {incremental,full}] [--port PORT] [--no-interactive] [--y
 - `--port`：指定设备端口。
 - `--no-interactive`：禁用交互提问。
 - `--yes`：跳过执行前确认（包括全量模式二次确认）。
+
+### `mpy-cli upload`
+
+```bash
+mpy-cli upload [--local LOCAL] [--remote REMOTE] [--port PORT] [--no-interactive] [--yes]
+```
+
+- `--local`：本地文件路径（如 `seekfree_demo/E01_demo.py`）。
+- `--remote`：设备目标路径；不传时交互模式默认与本地路径一致，可手动修改。
+- `--port`：指定设备端口。
+- `--no-interactive`：禁用交互提问；此时需显式提供 `--local` 和 `--remote`。
+- `--yes`：跳过执行前确认。
 
 ---
 

@@ -19,7 +19,7 @@ from mpy_cli.executor import DeployExecutor
 from mpy_cli.gitdiff import GitDiffError, collect_git_changes
 from mpy_cli.ignore import IgnoreMatcher, init_ignore
 from mpy_cli.logging import setup_logging
-from mpy_cli.planner import DeployPlan, build_plan
+from mpy_cli.planner import DeployPlan, PlanOperation, build_plan
 from mpy_cli.runtime import ensure_runtime_layout
 from mpy_cli.scanner import list_local_files
 
@@ -47,6 +47,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_config()
     if args.command in {"plan", "deploy"}:
         return _cmd_plan_or_deploy(args)
+    if args.command == "upload":
+        return _cmd_upload(args)
 
     parser.print_help()
     return 1
@@ -78,6 +80,15 @@ def build_parser() -> argparse.ArgumentParser:
         cmd.add_argument(
             "--no-interactive", action="store_true", help="禁用 questionary 交互"
         )
+
+    upload_parser = subparsers.add_parser("upload", help="手动单文件上传")
+    upload_parser.add_argument("--local", help="本地文件路径")
+    upload_parser.add_argument("--remote", help="设备目标路径")
+    upload_parser.add_argument("--port", help="设备串口，例如 /dev/ttyACM0")
+    upload_parser.add_argument("--yes", action="store_true", help="跳过交互确认")
+    upload_parser.add_argument(
+        "--no-interactive", action="store_true", help="禁用 questionary 交互"
+    )
 
     return parser
 
@@ -226,6 +237,112 @@ def _cmd_plan_or_deploy(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_upload(args: argparse.Namespace) -> int:
+    """@brief 执行 upload 子命令。"""
+
+    try:
+        cfg = load_config(Path(".mpy-cli.toml"))
+    except ConfigError as exc:
+        print(f"配置错误: {exc}")
+        print("请先运行 `mpy-cli init`")
+        return 1
+
+    runtime_paths = ensure_runtime_layout(Path(cfg.runtime_dir))
+    logger = setup_logging(runtime_paths.root)
+
+    interactive = not args.no_interactive
+    backend = MpremoteBackend(binary=cfg.mpremote_binary)
+    port = _resolve_port(
+        arg_port=args.port,
+        config_port=cfg.serial_port,
+        interactive=interactive,
+        scanner=backend,
+    )
+
+    if not port:
+        print("缺少串口参数，请通过 --port 或配置文件提供")
+        return 1
+
+    local_path = (args.local or "").strip()
+    if not local_path:
+        if not interactive:
+            print("非交互模式下必须通过 --local 指定本地文件路径")
+            return 1
+        local_path = _ask_text(
+            "请输入本地文件路径（例如 seekfree_demo/E01_demo.py）"
+        ).strip()
+
+    if not local_path:
+        print("本地文件路径不能为空")
+        return 1
+
+    default_remote_path = local_path
+    if args.remote is not None and args.remote.strip():
+        remote_path = args.remote.strip()
+    elif interactive:
+        remote_path = _ask_text(
+            "请输入设备目标路径（回车默认与本地路径一致）",
+            default=default_remote_path,
+        ).strip()
+        if not remote_path:
+            remote_path = default_remote_path
+    else:
+        print("非交互模式下必须通过 --remote 指定设备目标路径")
+        return 1
+
+    if not remote_path:
+        print("设备目标路径不能为空")
+        return 1
+
+    local_file = Path(local_path)
+    if not local_file.is_file():
+        print(f"本地文件不存在或不是文件: {local_path}")
+        return 1
+
+    final_remote_path = _join_upload_target(cfg.device_upload_dir, remote_path)
+
+    print("上传预览：")
+    print(f"- 端口: {port}")
+    print(f"- 本地: {local_path}")
+    print(f"- 远端: :{final_remote_path}")
+
+    if not args.yes and not _ask_confirm("确认执行上传？"):
+        print("已取消上传")
+        return 1
+
+    try:
+        backend.ensure_available()
+    except CommandExecutionError as exc:
+        print(str(exc))
+        return 1
+
+    plan = DeployPlan(
+        mode="incremental",
+        operations=[
+            PlanOperation(
+                op_type="upload",
+                local_path=local_path,
+                remote_path=final_remote_path,
+                reason="manual-upload",
+            )
+        ],
+    )
+    report = DeployExecutor(backend=backend, logger=logger).execute(
+        plan=plan, port=port
+    )
+
+    if report.failure_count:
+        print("上传失败：")
+        for failure in report.failures:
+            print(
+                f"- {failure.operation.op_type} {failure.operation.remote_path}: {failure.error}"
+            )
+        return 2
+
+    print("上传成功")
+    return 0
+
+
 def _print_plan(plan: DeployPlan) -> None:
     """@brief 输出部署计划摘要。"""
 
@@ -316,18 +433,31 @@ def _ask_select(message: str, choices: list[str], default: str) -> str:
     return default
 
 
-def _ask_text(message: str) -> str:
+def _join_upload_target(remote_base_dir: str, remote_path: str) -> str:
+    """@brief 计算 upload 命令最终设备目标路径。"""
+
+    normalized_base = remote_base_dir.strip().replace("\\", "/").strip("/")
+    normalized_path = remote_path.strip().replace("\\", "/").lstrip("/")
+
+    if not normalized_base:
+        return normalized_path
+    if not normalized_path:
+        return normalized_base
+    return f"{normalized_base}/{normalized_path}"
+
+
+def _ask_text(message: str, default: str = "") -> str:
     """@brief questionary 文本输入封装。"""
 
     try:
         import questionary
 
-        value = questionary.text(message).ask()
+        value = questionary.text(message, default=default).ask()
         if value:
             return str(value)
     except Exception:  # noqa: BLE001
         pass
-    return ""
+    return default
 
 
 def _ask_confirm(message: str) -> bool:

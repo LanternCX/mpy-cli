@@ -47,10 +47,13 @@ def test_readme_lists_all_cli_parameters() -> None:
         "mpy-cli config",
         "mpy-cli plan",
         "mpy-cli deploy",
+        "mpy-cli upload",
         "--force",
         "--no-interactive",
         "--mode",
         "--port",
+        "--local",
+        "--remote",
         "--yes",
     ]:
         assert token in content
