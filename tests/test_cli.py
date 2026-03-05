@@ -6,6 +6,7 @@ from pathlib import Path
 from mpy_cli.config import AppConfig, SyncConfig
 from mpy_cli.cli import _resolve_port, main
 from mpy_cli.executor import ExecutionReport
+from mpy_cli.gitdiff import ChangeEntry
 
 
 @dataclass
@@ -270,3 +271,113 @@ def test_upload_rejects_nonexistent_local_file(tmp_path: Path, monkeypatch) -> N
     )
 
     assert code == 1
+
+
+def test_plan_incremental_collects_changes_from_source_dir(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief 增量模式应在 source_dir 目录收集 git diff。"""
+
+    monkeypatch.chdir(tmp_path)
+    main(["init", "--no-interactive"])
+
+    source_root = tmp_path / "app_src"
+    source_root.mkdir(parents=True, exist_ok=True)
+
+    config = AppConfig(
+        serial_port="COM3",
+        ignore_file=".mpyignore",
+        runtime_dir=".mpy-cli",
+        source_dir="app_src",
+        mpremote_binary="mpremote",
+        device_upload_dir="",
+        sync=SyncConfig(mode="incremental"),
+    )
+
+    captured_repo_path: dict[str, Path] = {}
+
+    def fake_collect_git_changes(repo_path: Path) -> list[ChangeEntry]:
+        captured_repo_path["value"] = repo_path
+        return []
+
+    monkeypatch.setattr("mpy_cli.cli.load_config", lambda *_args, **_kwargs: config)
+    monkeypatch.setattr("mpy_cli.cli.collect_git_changes", fake_collect_git_changes)
+
+    code = main(["plan", "--no-interactive", "--mode", "incremental", "--port", "COM3"])
+
+    assert code == 0
+    assert captured_repo_path["value"] == source_root.resolve()
+
+
+def test_deploy_incremental_resolves_upload_local_path_from_source_dir(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief 增量部署上传操作应使用 source_dir 下的本地文件路径。"""
+
+    monkeypatch.chdir(tmp_path)
+    main(["init", "--no-interactive"])
+
+    source_root = tmp_path / "app_src"
+    source_root.mkdir(parents=True, exist_ok=True)
+    (source_root / "main.py").write_text("print('ok')\n", encoding="utf-8")
+
+    config = AppConfig(
+        serial_port="COM3",
+        ignore_file=".mpyignore",
+        runtime_dir=".mpy-cli",
+        source_dir="app_src",
+        mpremote_binary="mpremote",
+        device_upload_dir="",
+        sync=SyncConfig(mode="incremental"),
+    )
+
+    captured: dict[str, object] = {}
+
+    class FakeBackend:
+        """@brief deploy 测试后端。"""
+
+        def __init__(self, binary: str = "mpremote") -> None:
+            self.binary = binary
+
+        def ensure_available(self) -> None:
+            return
+
+    class FakeExecutor:
+        """@brief deploy 测试执行器。"""
+
+        def __init__(self, backend: object, logger: object | None = None) -> None:
+            self.backend = backend
+            self.logger = logger
+
+        def execute(self, plan, port: str) -> ExecutionReport:  # noqa: ANN001
+            captured["plan"] = plan
+            captured["port"] = port
+            return ExecutionReport(success_count=1, failure_count=0, failures=[])
+
+    def fake_collect_git_changes(_repo_path: Path) -> list[ChangeEntry]:
+        return [ChangeEntry(status="M", src_path=None, dst_path="main.py")]
+
+    monkeypatch.setattr("mpy_cli.cli.load_config", lambda *_args, **_kwargs: config)
+    monkeypatch.setattr("mpy_cli.cli.collect_git_changes", fake_collect_git_changes)
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+    monkeypatch.setattr("mpy_cli.cli.DeployExecutor", FakeExecutor)
+
+    code = main(
+        [
+            "deploy",
+            "--no-interactive",
+            "--yes",
+            "--mode",
+            "incremental",
+            "--port",
+            "COM3",
+        ]
+    )
+
+    assert code == 0
+    plan = captured["plan"]
+    operation = plan.operations[0]
+    assert operation.local_path == (source_root / "main.py").resolve().as_posix()
+    assert captured["port"] == "COM3"
