@@ -147,6 +147,7 @@ mpy-cli config
 mpy-cli plan
 mpy-cli deploy
 mpy-cli upload
+mpy-cli run
 ```
 
 说明：
@@ -238,6 +239,25 @@ mpy-cli upload --local <LOCAL>
 ```
 
 填写字段 `LOCAL` 指定本地文件路径之后交互式确认远程路径
+
+### `mpy-cli run`
+
+```bash
+mpy-cli run [--path PATH] [--port PORT] [--no-interactive] [--yes]
+```
+
+- `--path`：设备目标文件路径，语义为相对 `device_upload_dir`。
+- `--port`：指定设备端口。
+- `--no-interactive`：禁用交互提问；此时需显式提供 `--path`。
+- `--yes`：跳过执行前确认。
+
+推荐用法：
+
+```bash
+mpy-cli run --path main.py
+```
+
+若配置 `device_upload_dir = "apps/demo"`，则会执行 `:apps/demo/main.py`。
 
 ---
 

@@ -48,12 +48,14 @@ def test_readme_lists_all_cli_parameters() -> None:
         "mpy-cli plan",
         "mpy-cli deploy",
         "mpy-cli upload",
+        "mpy-cli run",
         "--force",
         "--no-interactive",
         "--mode",
         "--port",
         "--local",
         "--remote",
+        "--path",
         "--yes",
     ]:
         assert token in content
@@ -65,3 +67,11 @@ def test_readme_mentions_device_upload_dir_config() -> None:
     content = Path("README.md").read_text(encoding="utf-8")
     assert "device_upload_dir" in content
     assert "上传目录" in content
+
+
+def test_readme_lists_run_command_parameters() -> None:
+    """@brief README 应包含 run 命令及参数说明。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+    for token in ["mpy-cli run", "--path"]:
+        assert token in content

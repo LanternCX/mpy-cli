@@ -45,6 +45,46 @@ def test_delete_builds_expected_command() -> None:
     ]
 
 
+def test_run_builds_expected_command() -> None:
+    """@brief run 命令应构建为 mpremote resume exec 调用。"""
+
+    backend = MpremoteBackend(binary="mpremote")
+    cmd = backend.build_run_command(
+        port="/dev/ttyACM0",
+        remote="apps/demo/main.py",
+    )
+
+    assert cmd[0:4] == ["mpremote", "connect", "/dev/ttyACM0", "resume"]
+    assert cmd[4] == "exec"
+    assert "apps/demo/main.py" in cmd[5]
+
+
+def test_run_file_invokes_exec_command() -> None:
+    """@brief run_file 应调用 exec 命令执行目标脚本。"""
+
+    called: list[list[str]] = []
+
+    def fake_runner(command, capture_output, text, check):  # noqa: ANN001
+        called.append(command)
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout="ok\n",
+            stderr="",
+        )
+
+    backend = MpremoteBackend(
+        binary="mpremote",
+        runner=fake_runner,
+        resolver=lambda _: "/usr/bin/mpremote",
+    )
+
+    backend.run_file(port="/dev/ttyACM0", remote_path="apps/demo/main.py")
+
+    assert called
+    assert called[0][0:5] == ["mpremote", "connect", "/dev/ttyACM0", "resume", "exec"]
+
+
 def test_wipe_builds_expected_command_with_resume() -> None:
     """@brief wipe 命令应通过 resume 模式进入执行。"""
 

@@ -78,6 +78,12 @@ class MpremoteBackend:
             f":{remote}",
         ]
 
+    def build_run_command(self, port: str, remote: str) -> list[str]:
+        """@brief 构建设备脚本执行命令。"""
+
+        script = _build_remote_run_script(remote)
+        return [self.binary, "connect", port, "resume", "exec", script]
+
     def build_wipe_command(self, port: str, target_dir: str | None = None) -> list[str]:
         """@brief 构建设备目录清空命令。"""
 
@@ -148,6 +154,12 @@ class MpremoteBackend:
         """@brief 清空设备目标目录文件。"""
 
         cmd = self.build_wipe_command(port=port, target_dir=target_dir)
+        return self._run(cmd)
+
+    def run_file(self, port: str, remote_path: str) -> CommandResult:
+        """@brief 执行设备端目标脚本文件。"""
+
+        cmd = self.build_run_command(port=port, remote=remote_path)
         return self._run(cmd)
 
     def _run(self, command: list[str]) -> CommandResult:
@@ -254,3 +266,58 @@ def _normalize_remote_dir(target_dir: str | None) -> str:
     if is_absolute:
         return f"/{normalized}"
     return normalized
+
+
+def _normalize_remote_file(remote_path: str) -> str:
+    """@brief 归一化设备脚本路径。"""
+
+    raw = remote_path.strip().replace("\\", "/").lstrip(":")
+    if raw in {"", ".", "/"}:
+        return ""
+
+    is_absolute = raw.startswith("/")
+    parts = [part for part in raw.split("/") if part and part != "."]
+    if not parts:
+        return ""
+
+    normalized = "/".join(parts)
+    if is_absolute:
+        return f"/{normalized}"
+    return normalized
+
+
+def _build_remote_run_script(remote_path: str) -> str:
+    """@brief 生成设备端脚本执行片段。"""
+
+    normalized_remote_path = _normalize_remote_file(remote_path)
+    return (
+        f"target_raw = {normalized_remote_path!r}\n"
+        "import os\n"
+        "if not target_raw:\n"
+        "    raise OSError('empty target path')\n"
+        "roots = []\n"
+        "try:\n"
+        "    roots = os.listdir('/')\n"
+        "except OSError:\n"
+        "    roots = []\n"
+        "candidates = []\n"
+        "if target_raw.startswith('/'):\n"
+        "    candidates.append(target_raw)\n"
+        "else:\n"
+        "    candidates.append('/' + target_raw)\n"
+        "    if 'flash' in roots:\n"
+        "        candidates.append('/flash/' + target_raw)\n"
+        "resolved = None\n"
+        "for candidate in candidates:\n"
+        "    try:\n"
+        "        with open(candidate, 'r') as f:\n"
+        "            source = f.read()\n"
+        "        resolved = candidate\n"
+        "        break\n"
+        "    except OSError:\n"
+        "        pass\n"
+        "if resolved is None:\n"
+        "    raise OSError('target file not found: ' + target_raw)\n"
+        "globals_dict = {'__name__': '__main__', '__file__': resolved}\n"
+        "exec(compile(source, resolved, 'exec'), globals_dict, globals_dict)\n"
+    )
