@@ -13,9 +13,9 @@ class FakeBackend:
     calls: list[tuple[str, str | None, str | None]]
     fail_wipe: bool = False
 
-    def wipe_root(self, port: str) -> None:
+    def wipe_root(self, port: str, target_dir: str | None = None) -> None:
         """@brief Record wipe call and optionally fail."""
-        self.calls.append(("wipe", port, None))
+        self.calls.append(("wipe", port, target_dir))
         if self.fail_wipe:
             raise RuntimeError("wipe failed")
 
@@ -101,3 +101,26 @@ def test_executor_logs_progress_for_each_operation() -> None:
     assert report.failure_count == 0
     assert any("开始上传" in msg and "main.py" in msg for msg in logger.info_messages)
     assert any("完成上传" in msg and "main.py" in msg for msg in logger.info_messages)
+
+
+def test_executor_passes_wipe_target_dir_to_backend() -> None:
+    """@brief wipe 操作应将计划中的目标目录传给后端。"""
+
+    backend = FakeBackend(calls=[])
+    executor = DeployExecutor(backend=backend)
+    plan = DeployPlan(
+        mode="full",
+        operations=[
+            PlanOperation(
+                op_type="wipe",
+                local_path=None,
+                remote_path="apps/demo",
+                reason="full",
+            )
+        ],
+    )
+
+    report = executor.execute(plan=plan, port="/dev/ttyACM0")
+
+    assert report.failure_count == 0
+    assert backend.calls == [("wipe", "/dev/ttyACM0", "apps/demo")]

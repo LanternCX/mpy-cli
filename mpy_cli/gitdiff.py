@@ -38,9 +38,13 @@ def parse_name_status_line(line: str) -> ChangeEntry:
 def collect_git_changes(repo_path: Path) -> list[ChangeEntry]:
     """@brief 收集当前工作区变更和未跟踪文件。"""
 
-    name_status_output = _run_git(["diff", "--name-status", "HEAD"], repo_path)
+    name_status_output = _run_git(
+        ["diff", "--name-status", "--relative", "HEAD", "--", "."],
+        repo_path,
+    )
     untracked_output = _run_git(
-        ["ls-files", "--others", "--exclude-standard"], repo_path
+        ["ls-files", "--others", "--exclude-standard", "--", "."],
+        repo_path,
     )
 
     changes: list[ChangeEntry] = []
@@ -72,13 +76,16 @@ def collect_git_changes(repo_path: Path) -> list[ChangeEntry]:
 def _run_git(args: list[str], repo_path: Path) -> str:
     """@brief 执行 Git 命令并返回输出。"""
 
-    completed = subprocess.run(
-        ["git", *args],
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise GitDiffError(str(exc)) from exc
     if completed.returncode != 0:
         raise GitDiffError(completed.stderr.strip() or completed.stdout.strip())
     return completed.stdout

@@ -16,10 +16,10 @@ from mpy_cli.config import (
 )
 from mpy_cli.config_wizard import run_config_wizard
 from mpy_cli.executor import DeployExecutor
-from mpy_cli.gitdiff import GitDiffError, collect_git_changes
+from mpy_cli.gitdiff import ChangeEntry, GitDiffError, collect_git_changes
 from mpy_cli.ignore import IgnoreMatcher, init_ignore
 from mpy_cli.logging import setup_logging
-from mpy_cli.planner import DeployPlan, build_plan
+from mpy_cli.planner import DeployPlan, PlanOperation, build_plan
 from mpy_cli.runtime import ensure_runtime_layout
 from mpy_cli.scanner import list_local_files
 
@@ -47,6 +47,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_config()
     if args.command in {"plan", "deploy"}:
         return _cmd_plan_or_deploy(args)
+    if args.command == "upload":
+        return _cmd_upload(args)
 
     parser.print_help()
     return 1
@@ -78,6 +80,15 @@ def build_parser() -> argparse.ArgumentParser:
         cmd.add_argument(
             "--no-interactive", action="store_true", help="禁用 questionary 交互"
         )
+
+    upload_parser = subparsers.add_parser("upload", help="手动单文件上传")
+    upload_parser.add_argument("--local", help="本地文件路径")
+    upload_parser.add_argument("--remote", help="设备目标路径")
+    upload_parser.add_argument("--port", help="设备串口，例如 /dev/ttyACM0")
+    upload_parser.add_argument("--yes", action="store_true", help="跳过交互确认")
+    upload_parser.add_argument(
+        "--no-interactive", action="store_true", help="禁用 questionary 交互"
+    )
 
     return parser
 
@@ -161,7 +172,14 @@ def _cmd_plan_or_deploy(args: argparse.Namespace) -> int:
         print("缺少串口参数，请通过 --port 或配置文件提供")
         return 1
 
-    project_root = Path.cwd()
+    project_root = Path.cwd().resolve()
+    source_root = _resolve_source_root(
+        project_root=project_root, source_dir=cfg.source_dir
+    )
+    source_path_prefix = _derive_source_path_prefix(
+        project_root=project_root,
+        source_root=source_root,
+    )
     matcher = IgnoreMatcher.from_file(project_root / cfg.ignore_file)
 
     try:
@@ -173,14 +191,21 @@ def _cmd_plan_or_deploy(args: argparse.Namespace) -> int:
             )
             changes = []
         else:
-            changes = collect_git_changes(project_root)
+            changes = _prefix_change_paths(
+                collect_git_changes(source_root),
+                source_path_prefix=source_path_prefix,
+            )
             local_files = []
     except GitDiffError as exc:
         print(f"Git 变更读取失败: {exc}")
         return 1
 
     plan = build_plan(
-        mode=mode, local_files=local_files, changes=changes, matcher=matcher
+        mode=mode,
+        local_files=local_files,
+        changes=changes,
+        matcher=matcher,
+        remote_base_dir=cfg.device_upload_dir,
     )
     _print_plan(plan)
 
@@ -191,7 +216,9 @@ def _cmd_plan_or_deploy(args: argparse.Namespace) -> int:
         if not _ask_confirm("确认执行部署？"):
             print("已取消部署")
             return 1
-        if mode == "full" and not _ask_confirm("全量模式将清空设备根目录，确认继续？"):
+        if mode == "full" and not _ask_confirm(
+            "全量模式将清空目标上传目录，确认继续？"
+        ):
             print("已取消全量部署")
             return 1
 
@@ -201,8 +228,17 @@ def _cmd_plan_or_deploy(args: argparse.Namespace) -> int:
         print(str(exc))
         return 1
 
+    execution_plan = plan
+    if mode == "incremental":
+        execution_plan = _resolve_incremental_upload_local_paths(
+            plan=plan,
+            source_root=source_root,
+            source_path_prefix=source_path_prefix,
+        )
+
     report = DeployExecutor(backend=backend, logger=logger).execute(
-        plan=plan, port=port
+        plan=execution_plan,
+        port=port,
     )
     logger.info(
         "部署完成: success=%s failure=%s", report.success_count, report.failure_count
@@ -217,6 +253,112 @@ def _cmd_plan_or_deploy(args: argparse.Namespace) -> int:
         return 2
 
     print("部署成功")
+    return 0
+
+
+def _cmd_upload(args: argparse.Namespace) -> int:
+    """@brief 执行 upload 子命令。"""
+
+    try:
+        cfg = load_config(Path(".mpy-cli.toml"))
+    except ConfigError as exc:
+        print(f"配置错误: {exc}")
+        print("请先运行 `mpy-cli init`")
+        return 1
+
+    runtime_paths = ensure_runtime_layout(Path(cfg.runtime_dir))
+    logger = setup_logging(runtime_paths.root)
+
+    interactive = not args.no_interactive
+    backend = MpremoteBackend(binary=cfg.mpremote_binary)
+    port = _resolve_port(
+        arg_port=args.port,
+        config_port=cfg.serial_port,
+        interactive=interactive,
+        scanner=backend,
+    )
+
+    if not port:
+        print("缺少串口参数，请通过 --port 或配置文件提供")
+        return 1
+
+    local_path = (args.local or "").strip()
+    if not local_path:
+        if not interactive:
+            print("非交互模式下必须通过 --local 指定本地文件路径")
+            return 1
+        local_path = _ask_text(
+            "请输入本地文件路径（例如 seekfree_demo/E01_demo.py）"
+        ).strip()
+
+    if not local_path:
+        print("本地文件路径不能为空")
+        return 1
+
+    default_remote_path = local_path
+    if args.remote is not None and args.remote.strip():
+        remote_path = args.remote.strip()
+    elif interactive:
+        remote_path = _ask_text(
+            "请输入设备目标路径（回车默认与本地路径一致）",
+            default=default_remote_path,
+        ).strip()
+        if not remote_path:
+            remote_path = default_remote_path
+    else:
+        print("非交互模式下必须通过 --remote 指定设备目标路径")
+        return 1
+
+    if not remote_path:
+        print("设备目标路径不能为空")
+        return 1
+
+    local_file = Path(local_path)
+    if not local_file.is_file():
+        print(f"本地文件不存在或不是文件: {local_path}")
+        return 1
+
+    final_remote_path = _join_upload_target(cfg.device_upload_dir, remote_path)
+
+    print("上传预览：")
+    print(f"- 端口: {port}")
+    print(f"- 本地: {local_path}")
+    print(f"- 远端: :{final_remote_path}")
+
+    if not args.yes and not _ask_confirm("确认执行上传？"):
+        print("已取消上传")
+        return 1
+
+    try:
+        backend.ensure_available()
+    except CommandExecutionError as exc:
+        print(str(exc))
+        return 1
+
+    plan = DeployPlan(
+        mode="incremental",
+        operations=[
+            PlanOperation(
+                op_type="upload",
+                local_path=local_path,
+                remote_path=final_remote_path,
+                reason="manual-upload",
+            )
+        ],
+    )
+    report = DeployExecutor(backend=backend, logger=logger).execute(
+        plan=plan, port=port
+    )
+
+    if report.failure_count:
+        print("上传失败：")
+        for failure in report.failures:
+            print(
+                f"- {failure.operation.op_type} {failure.operation.remote_path}: {failure.error}"
+            )
+        return 2
+
+    print("上传成功")
     return 0
 
 
@@ -310,18 +452,154 @@ def _ask_select(message: str, choices: list[str], default: str) -> str:
     return default
 
 
-def _ask_text(message: str) -> str:
+def _resolve_source_root(project_root: Path, source_dir: str) -> Path:
+    """@brief 解析配置 source_dir 对应的本地目录绝对路径。"""
+
+    source_path = Path(source_dir)
+    if source_path.is_absolute():
+        return source_path.resolve()
+    return (project_root / source_path).resolve()
+
+
+def _derive_source_path_prefix(project_root: Path, source_root: Path) -> str:
+    """@brief 推导 source_dir 对应的项目相对前缀。"""
+
+    try:
+        relative = source_root.relative_to(project_root).as_posix()
+    except ValueError:
+        return ""
+
+    normalized = relative.strip("/")
+    if normalized in {"", "."}:
+        return ""
+    return normalized
+
+
+def _prefix_change_paths(
+    changes: list[ChangeEntry],
+    source_path_prefix: str,
+) -> list[ChangeEntry]:
+    """@brief 将增量变更路径补齐为项目级相对路径。"""
+
+    if not source_path_prefix:
+        return changes
+
+    prefixed: list[ChangeEntry] = []
+    for change in changes:
+        src_path = None
+        if change.src_path is not None:
+            src_path = _join_source_path_prefix(source_path_prefix, change.src_path)
+        prefixed.append(
+            ChangeEntry(
+                status=change.status,
+                src_path=src_path,
+                dst_path=_join_source_path_prefix(source_path_prefix, change.dst_path),
+            )
+        )
+    return prefixed
+
+
+def _join_source_path_prefix(source_path_prefix: str, path: str) -> str:
+    """@brief 拼接 source_dir 前缀与相对路径。"""
+
+    normalized_prefix = source_path_prefix.strip().replace("\\", "/").strip("/")
+    normalized_path = path.strip().replace("\\", "/").lstrip("/")
+    if not normalized_prefix:
+        return normalized_path
+    if not normalized_path:
+        return normalized_prefix
+    return f"{normalized_prefix}/{normalized_path}"
+
+
+def _resolve_incremental_upload_local_paths(
+    plan: DeployPlan,
+    source_root: Path,
+    source_path_prefix: str,
+) -> DeployPlan:
+    """@brief 将增量上传的 local_path 解析为 source_dir 下的绝对路径。"""
+
+    normalized_source_root = source_root.resolve()
+    operations: list[PlanOperation] = []
+
+    for operation in plan.operations:
+        if operation.op_type != "upload" or operation.local_path is None:
+            operations.append(operation)
+            continue
+
+        resolved_local_path = _resolve_incremental_local_path(
+            local_path=operation.local_path,
+            source_root=normalized_source_root,
+            source_path_prefix=source_path_prefix,
+        )
+        operations.append(
+            PlanOperation(
+                op_type=operation.op_type,
+                local_path=resolved_local_path,
+                remote_path=operation.remote_path,
+                reason=operation.reason,
+            )
+        )
+
+    return DeployPlan(mode=plan.mode, operations=operations)
+
+
+def _resolve_incremental_local_path(
+    local_path: str,
+    source_root: Path,
+    source_path_prefix: str,
+) -> str:
+    """@brief 计算增量上传操作对应的本地绝对文件路径。"""
+
+    relative_path = _strip_source_path_prefix(
+        path=local_path,
+        source_path_prefix=source_path_prefix,
+    )
+    resolved_path = (source_root / relative_path).resolve()
+    return resolved_path.as_posix()
+
+
+def _strip_source_path_prefix(path: str, source_path_prefix: str) -> str:
+    """@brief 去除路径中的 source_dir 项目相对前缀。"""
+
+    normalized_path = path.strip().replace("\\", "/").lstrip("/")
+    normalized_prefix = source_path_prefix.strip().replace("\\", "/").strip("/")
+
+    if not normalized_prefix:
+        return normalized_path
+    if normalized_path == normalized_prefix:
+        return ""
+
+    prefix_token = f"{normalized_prefix}/"
+    if normalized_path.startswith(prefix_token):
+        return normalized_path[len(prefix_token) :]
+    return normalized_path
+
+
+def _join_upload_target(remote_base_dir: str, remote_path: str) -> str:
+    """@brief 计算 upload 命令最终设备目标路径。"""
+
+    normalized_base = remote_base_dir.strip().replace("\\", "/").strip("/")
+    normalized_path = remote_path.strip().replace("\\", "/").lstrip("/")
+
+    if not normalized_base:
+        return normalized_path
+    if not normalized_path:
+        return normalized_base
+    return f"{normalized_base}/{normalized_path}"
+
+
+def _ask_text(message: str, default: str = "") -> str:
     """@brief questionary 文本输入封装。"""
 
     try:
         import questionary
 
-        value = questionary.text(message).ask()
+        value = questionary.text(message, default=default).ask()
         if value:
             return str(value)
     except Exception:  # noqa: BLE001
         pass
-    return ""
+    return default
 
 
 def _ask_confirm(message: str) -> bool:

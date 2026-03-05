@@ -66,6 +66,18 @@ def test_wipe_script_targets_flash_contents_not_flash_mountpoint() -> None:
     assert "_rm('/')" not in script
 
 
+def test_wipe_script_scopes_cleanup_to_target_dir_when_provided() -> None:
+    """@brief 指定 target_dir 时应仅清空该目录。"""
+
+    backend = MpremoteBackend(binary="mpremote")
+    cmd = backend.build_wipe_command(port="/dev/ttyACM0", target_dir="apps/demo")
+
+    script = cmd[5]
+    assert "target_raw = 'apps/demo'" in script
+    assert "_clean(target)" in script
+    assert "target = '/flash/' + target_raw" in script
+
+
 def test_parse_port_list_output_extracts_known_port_tokens() -> None:
     """@brief 端口解析应提取常见串口标识并保持顺序。"""
 

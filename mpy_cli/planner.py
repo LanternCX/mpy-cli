@@ -33,37 +33,53 @@ def build_plan(
     local_files: list[str] | list[LocalFileEntry],
     changes: list[ChangeEntry],
     matcher: IgnoreMatcher,
+    remote_base_dir: str = "",
 ) -> DeployPlan:
     """@brief 根据模式构建部署计划。"""
 
+    normalized_remote_base_dir = _normalize_remote_base_dir(remote_base_dir)
+
     if mode == "full":
-        operations = _build_full_plan(local_files=local_files, matcher=matcher)
+        operations = _build_full_plan(
+            local_files=local_files,
+            matcher=matcher,
+            remote_base_dir=normalized_remote_base_dir,
+        )
         return DeployPlan(mode=mode, operations=operations)
 
     operations = _build_incremental_plan(
-        local_files=local_files, changes=changes, matcher=matcher
+        local_files=local_files,
+        changes=changes,
+        matcher=matcher,
+        remote_base_dir=normalized_remote_base_dir,
     )
     return DeployPlan(mode=mode, operations=operations)
 
 
 def _build_full_plan(
-    local_files: list[str] | list[LocalFileEntry], matcher: IgnoreMatcher
+    local_files: list[str] | list[LocalFileEntry],
+    matcher: IgnoreMatcher,
+    remote_base_dir: str,
 ) -> list[PlanOperation]:
     """@brief 构建全量模式计划。"""
 
     operations: list[PlanOperation] = [
         PlanOperation(
-            op_type="wipe", local_path=None, remote_path=None, reason="full-sync"
+            op_type="wipe",
+            local_path=None,
+            remote_path=remote_base_dir or None,
+            reason="full-sync",
         ),
     ]
     for local_path, remote_path in _normalize_full_local_files(local_files):
         if matcher.is_ignored(remote_path):
             continue
+        target_remote_path = _join_remote_path(remote_base_dir, remote_path)
         operations.append(
             PlanOperation(
                 op_type="upload",
                 local_path=local_path,
-                remote_path=remote_path,
+                remote_path=target_remote_path,
                 reason="full-sync",
             )
         )
@@ -74,6 +90,7 @@ def _build_incremental_plan(
     local_files: list[str] | list[LocalFileEntry],
     changes: list[ChangeEntry],
     matcher: IgnoreMatcher,
+    remote_base_dir: str,
 ) -> list[PlanOperation]:
     """@brief 构建增量模式计划。"""
 
@@ -90,7 +107,7 @@ def _build_incremental_plan(
                     PlanOperation(
                         op_type="delete",
                         local_path=None,
-                        remote_path=target,
+                        remote_path=_join_remote_path(remote_base_dir, target),
                         reason="git-diff",
                     )
                 )
@@ -105,7 +122,7 @@ def _build_incremental_plan(
                 PlanOperation(
                     op_type="upload",
                     local_path=target,
-                    remote_path=target,
+                    remote_path=_join_remote_path(remote_base_dir, target),
                     reason="git-diff",
                 )
             )
@@ -123,7 +140,10 @@ def _build_incremental_plan(
         upload_seen.add(path)
         operations.append(
             PlanOperation(
-                op_type="upload", local_path=path, remote_path=path, reason="local-new"
+                op_type="upload",
+                local_path=path,
+                remote_path=_join_remote_path(remote_base_dir, path),
+                reason="local-new",
             )
         )
 
@@ -150,3 +170,25 @@ def _normalize_full_local_files(
         normalized.append(pair)
 
     return sorted(normalized, key=lambda pair: pair[1])
+
+
+def _normalize_remote_base_dir(remote_base_dir: str) -> str:
+    """@brief 归一化设备上传目录。"""
+
+    raw = remote_base_dir.strip().replace("\\", "/")
+    if raw in {"", ".", "/"}:
+        return ""
+
+    parts = [part for part in raw.split("/") if part and part != "."]
+    return "/".join(parts)
+
+
+def _join_remote_path(remote_base_dir: str, path: str) -> str:
+    """@brief 将设备上传目录前缀拼接到远端路径。"""
+
+    normalized_path = path.strip().replace("\\", "/").lstrip("/")
+    if not remote_base_dir:
+        return normalized_path
+    if not normalized_path:
+        return remote_base_dir
+    return f"{remote_base_dir}/{normalized_path}"
