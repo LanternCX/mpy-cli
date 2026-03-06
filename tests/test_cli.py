@@ -749,3 +749,160 @@ def test_deploy_incremental_resolves_upload_local_path_from_source_dir(
     assert operation.local_path == (source_root / "main.py").resolve().as_posix()
     assert operation.remote_path == "main.py"
     assert captured["port"] == "COM3"
+
+
+def test_tree_executes_remote_list_with_device_upload_prefix(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief tree 应按 device_upload_dir 与 path 组合目标目录。"""
+
+    monkeypatch.chdir(tmp_path)
+    main(["init", "--no-interactive"])
+
+    config = AppConfig(
+        serial_port="COM3",
+        ignore_file=".mpyignore",
+        runtime_dir=".mpy-cli",
+        source_dir=".",
+        mpremote_binary="mpremote",
+        device_upload_dir="apps/demo",
+        sync=SyncConfig(mode="incremental"),
+    )
+
+    captured: dict[str, object] = {}
+
+    class FakeEntry:
+        def __init__(self, name: str, is_dir: bool) -> None:
+            self.name = name
+            self.is_dir = is_dir
+
+    class FakeBackend:
+        """@brief tree 测试后端。"""
+
+        def __init__(self, binary: str = "mpremote") -> None:
+            self.binary = binary
+
+        def ensure_available(self) -> None:
+            captured["ensure_available"] = True
+
+        def list_dir(self, port: str, remote_path: str):  # noqa: ANN201
+            captured["port"] = port
+            captured["remote_path"] = remote_path
+            return [FakeEntry(name="main.py", is_dir=False)]
+
+    monkeypatch.setattr("mpy_cli.cli.load_config", lambda *_args, **_kwargs: config)
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+
+    code = main(
+        [
+            "tree",
+            "--no-interactive",
+            "--port",
+            "COM3",
+            "--path",
+            "services",
+        ]
+    )
+
+    assert code == 0
+    assert captured["ensure_available"] is True
+    assert captured["port"] == "COM3"
+    assert captured["remote_path"] == "apps/demo/services"
+
+
+def test_tree_returns_failure_code_when_backend_list_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief tree 读取设备目录失败时应返回失败退出码。"""
+
+    monkeypatch.chdir(tmp_path)
+    main(["init", "--no-interactive"])
+
+    config = AppConfig(
+        serial_port="COM3",
+        ignore_file=".mpyignore",
+        runtime_dir=".mpy-cli",
+        source_dir=".",
+        mpremote_binary="mpremote",
+        device_upload_dir="",
+        sync=SyncConfig(mode="incremental"),
+    )
+
+    class FakeBackend:
+        """@brief tree 失败路径测试后端。"""
+
+        def __init__(self, binary: str = "mpremote") -> None:
+            self.binary = binary
+
+        def ensure_available(self) -> None:
+            return
+
+        def list_dir(self, port: str, remote_path: str):  # noqa: ANN201
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr("mpy_cli.cli.load_config", lambda *_args, **_kwargs: config)
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+
+    code = main(["tree", "--no-interactive", "--port", "COM3"])
+
+    assert code == 2
+
+
+def test_tree_prints_nested_structure_in_tree_style(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:  # noqa: ANN001
+    """@brief tree 输出应包含稳定的树形层级结构。"""
+
+    monkeypatch.chdir(tmp_path)
+    main(["init", "--no-interactive"])
+
+    config = AppConfig(
+        serial_port="COM3",
+        ignore_file=".mpyignore",
+        runtime_dir=".mpy-cli",
+        source_dir=".",
+        mpremote_binary="mpremote",
+        device_upload_dir="apps/demo",
+        sync=SyncConfig(mode="incremental"),
+    )
+
+    class FakeEntry:
+        def __init__(self, name: str, is_dir: bool) -> None:
+            self.name = name
+            self.is_dir = is_dir
+
+    mapping = {
+        "apps/demo": [
+            FakeEntry(name="z.py", is_dir=False),
+            FakeEntry(name="a_dir", is_dir=True),
+        ],
+        "apps/demo/a_dir": [FakeEntry(name="inner.py", is_dir=False)],
+    }
+
+    class FakeBackend:
+        """@brief tree 树形输出测试后端。"""
+
+        def __init__(self, binary: str = "mpremote") -> None:
+            self.binary = binary
+
+        def ensure_available(self) -> None:
+            return
+
+        def list_dir(self, port: str, remote_path: str):  # noqa: ANN201
+            return mapping.get(remote_path, [])
+
+    monkeypatch.setattr("mpy_cli.cli.load_config", lambda *_args, **_kwargs: config)
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+
+    code = main(["tree", "--no-interactive", "--port", "COM3"])
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert "apps/demo" in output
+    assert "├── a_dir/" in output
+    assert "│   └── inner.py" in output
+    assert "└── z.py" in output

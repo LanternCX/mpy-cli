@@ -23,6 +23,14 @@ class CommandResult:
     returncode: int
 
 
+@dataclass(frozen=True)
+class RemoteDirEntry:
+    """@brief 设备目录条目。"""
+
+    name: str
+    is_dir: bool
+
+
 class MpremoteBackend:
     """@brief `mpremote` 后端适配器。"""
 
@@ -88,6 +96,12 @@ class MpremoteBackend:
         """@brief 构建设备脚本执行命令。"""
 
         script = _build_remote_run_script(remote)
+        return [self.binary, "connect", port, "resume", "exec", script]
+
+    def build_list_dir_command(self, port: str, remote: str) -> list[str]:
+        """@brief 构建设备目录读取命令。"""
+
+        script = _build_remote_list_dir_script(remote)
         return [self.binary, "connect", port, "resume", "exec", script]
 
     def build_wipe_command(self, port: str, target_dir: str | None = None) -> list[str]:
@@ -173,6 +187,13 @@ class MpremoteBackend:
 
         cmd = self.build_run_command(port=port, remote=remote_path)
         return self._run(cmd)
+
+    def list_dir(self, port: str, remote_path: str) -> list[RemoteDirEntry]:
+        """@brief 读取设备端单层目录条目。"""
+
+        cmd = self.build_list_dir_command(port=port, remote=remote_path)
+        result = self._run(cmd)
+        return parse_remote_dir_list_output(result.stdout)
 
     def _run(self, command: list[str]) -> CommandResult:
         """@brief 执行外部命令。"""
@@ -380,3 +401,71 @@ def _build_remote_delete_script(remote_path: str) -> str:
         "if resolved is None:\n"
         "    raise OSError('target path not found: ' + target_raw)\n"
     )
+
+
+def _build_remote_list_dir_script(remote_path: str) -> str:
+    """@brief 生成设备端目录单层读取片段。"""
+
+    normalized_remote_path = _normalize_remote_file(remote_path)
+    return (
+        f"target_raw = {normalized_remote_path!r}\n"
+        "import os\n"
+        "roots = []\n"
+        "try:\n"
+        "    roots = os.listdir('/')\n"
+        "except OSError:\n"
+        "    roots = []\n"
+        "candidates = []\n"
+        "if not target_raw:\n"
+        "    if 'flash' in roots:\n"
+        "        candidates.append('/flash')\n"
+        "    candidates.append('/')\n"
+        "elif target_raw.startswith('/'):\n"
+        "    candidates.append(target_raw)\n"
+        "else:\n"
+        "    candidates.append('/' + target_raw)\n"
+        "    if 'flash' in roots:\n"
+        "        candidates.append('/flash/' + target_raw)\n"
+        "resolved = None\n"
+        "names = []\n"
+        "for candidate in candidates:\n"
+        "    try:\n"
+        "        names = os.listdir(candidate)\n"
+        "        resolved = candidate\n"
+        "        break\n"
+        "    except OSError:\n"
+        "        pass\n"
+        "if resolved is None:\n"
+        "    raise OSError('target path not found: ' + target_raw)\n"
+        "try:\n"
+        "    names.sort()\n"
+        "except Exception:\n"
+        "    pass\n"
+        "for name in names:\n"
+        "    current = resolved + '/' + name if resolved != '/' else '/' + name\n"
+        "    try:\n"
+        "        os.listdir(current)\n"
+        "        print('D\\t' + name)\n"
+        "    except OSError:\n"
+        "        print('F\\t' + name)\n"
+    )
+
+
+def parse_remote_dir_list_output(output: str) -> list[RemoteDirEntry]:
+    """@brief 解析设备目录读取输出。"""
+
+    entries: list[RemoteDirEntry] = []
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if "\t" not in line:
+            continue
+        kind, name = line.split("\t", 1)
+        cleaned_name = name.strip()
+        if not cleaned_name:
+            continue
+        if kind not in {"D", "F"}:
+            continue
+        entries.append(RemoteDirEntry(name=cleaned_name, is_dir=(kind == "D")))
+    return entries

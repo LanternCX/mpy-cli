@@ -50,6 +50,7 @@ def test_readme_lists_all_cli_parameters() -> None:
         "mpy-cli upload",
         "mpy-cli run",
         "mpy-cli delete",
+        "mpy-cli tree",
         "--force",
         "--no-interactive",
         "--mode",
@@ -100,3 +101,11 @@ def test_readme_mentions_upload_default_remote_path_semantics() -> None:
     content = Path("README.md").read_text(encoding="utf-8")
     assert "默认优先使用“相对 `source_dir` 路径”" in content
     assert "默认与本地路径一致" not in content
+
+
+def test_readme_lists_tree_command_parameters() -> None:
+    """@brief README 应包含 tree 命令及参数说明。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+    for token in ["mpy-cli tree", "--path"]:
+        assert token in content

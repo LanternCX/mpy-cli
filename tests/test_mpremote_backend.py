@@ -242,3 +242,45 @@ def test_upload_file_creates_remote_parent_dirs_before_copy() -> None:
         ":services/commands",
     ]
     assert called[2][-4:] == ["fs", "cp", "/tmp/local.py", ":services/commands/cmd.py"]
+
+
+def test_list_dir_builds_expected_exec_command() -> None:
+    """@brief list_dir 应构建为 mpremote resume exec 调用。"""
+
+    backend = MpremoteBackend(binary="mpremote")
+    cmd = backend.build_list_dir_command(
+        port="/dev/ttyACM0",
+        remote="apps/demo",
+    )
+
+    assert cmd[0:4] == ["mpremote", "connect", "/dev/ttyACM0", "resume"]
+    assert cmd[4] == "exec"
+    assert "apps/demo" in cmd[5]
+
+
+def test_list_dir_parses_typed_entries() -> None:
+    """@brief list_dir 应将 D/F 标记输出解析为结构化目录条目。"""
+
+    called: list[list[str]] = []
+
+    def fake_runner(command, capture_output, text, check):  # noqa: ANN001
+        called.append(command)
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout="D\tapps\nF\tmain.py\n",
+            stderr="",
+        )
+
+    backend = MpremoteBackend(
+        binary="mpremote",
+        runner=fake_runner,
+        resolver=lambda _: "/usr/bin/mpremote",
+    )
+
+    entries = backend.list_dir(port="/dev/ttyACM0", remote_path="apps/demo")
+
+    assert called
+    assert called[0][0:5] == ["mpremote", "connect", "/dev/ttyACM0", "resume", "exec"]
+    assert [entry.name for entry in entries] == ["apps", "main.py"]
+    assert [entry.is_dir for entry in entries] == [True, False]

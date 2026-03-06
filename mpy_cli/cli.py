@@ -6,7 +6,11 @@ import argparse
 from pathlib import Path
 from typing import Protocol, Sequence
 
-from mpy_cli.backend.mpremote import CommandExecutionError, MpremoteBackend
+from mpy_cli.backend.mpremote import (
+    CommandExecutionError,
+    MpremoteBackend,
+    RemoteDirEntry,
+)
 from mpy_cli.config import (
     ConfigError,
     default_config,
@@ -53,6 +57,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_run(args)
     if args.command == "delete":
         return _cmd_delete(args)
+    if args.command == "tree":
+        return _cmd_tree(args)
 
     parser.print_help()
     return 1
@@ -107,6 +113,13 @@ def build_parser() -> argparse.ArgumentParser:
     delete_parser.add_argument("--port", help="设备串口，例如 /dev/ttyACM0")
     delete_parser.add_argument("--yes", action="store_true", help="跳过交互确认")
     delete_parser.add_argument(
+        "--no-interactive", action="store_true", help="禁用 questionary 交互"
+    )
+
+    tree_parser = subparsers.add_parser("tree", help="读取设备端目录树")
+    tree_parser.add_argument("--path", help="设备目标目录路径")
+    tree_parser.add_argument("--port", help="设备串口，例如 /dev/ttyACM0")
+    tree_parser.add_argument(
         "--no-interactive", action="store_true", help="禁用 questionary 交互"
     )
 
@@ -522,6 +535,92 @@ def _cmd_delete(args: argparse.Namespace) -> int:
     logger.info("delete 执行完成: %s", final_remote_path)
     print("删除成功")
     return 0
+
+
+def _cmd_tree(args: argparse.Namespace) -> int:
+    """@brief 执行 tree 子命令。"""
+
+    try:
+        cfg = load_config(Path(".mpy-cli.toml"))
+    except ConfigError as exc:
+        print(f"配置错误: {exc}")
+        print("请先运行 `mpy-cli init`")
+        return 1
+
+    runtime_paths = ensure_runtime_layout(Path(cfg.runtime_dir))
+    logger = setup_logging(runtime_paths.root)
+
+    interactive = not args.no_interactive
+    backend = MpremoteBackend(binary=cfg.mpremote_binary)
+    port = _resolve_port(
+        arg_port=args.port,
+        config_port=cfg.serial_port,
+        interactive=interactive,
+        scanner=backend,
+    )
+
+    if not port:
+        print("缺少串口参数，请通过 --port 或配置文件提供")
+        return 1
+
+    target_path = (args.path or "").strip()
+    final_remote_path = _join_upload_target(cfg.device_upload_dir, target_path)
+
+    try:
+        backend.ensure_available()
+    except CommandExecutionError as exc:
+        print(str(exc))
+        return 1
+
+    try:
+        print(final_remote_path or "/")
+        lines = _render_remote_tree_lines(
+            backend=backend,
+            port=port,
+            remote_path=final_remote_path,
+            prefix="",
+        )
+        for line in lines:
+            print(line)
+    except Exception as exc:  # noqa: BLE001
+        print(f"读取目录失败: {exc}")
+        return 2
+
+    logger.info("tree 执行完成: %s", final_remote_path or "/")
+    return 0
+
+
+def _render_remote_tree_lines(
+    backend: MpremoteBackend,
+    port: str,
+    remote_path: str,
+    prefix: str,
+) -> list[str]:
+    """@brief 递归渲染设备目录树。"""
+
+    entries: list[RemoteDirEntry] = backend.list_dir(port=port, remote_path=remote_path)
+    ordered_entries = sorted(entries, key=lambda item: (not item.is_dir, item.name))
+
+    lines: list[str] = []
+    for index, entry in enumerate(ordered_entries):
+        is_last = index == len(ordered_entries) - 1
+        branch = "└── " if is_last else "├── "
+        suffix = "/" if entry.is_dir else ""
+        lines.append(f"{prefix}{branch}{entry.name}{suffix}")
+
+        if entry.is_dir:
+            child_prefix = f"{prefix}{'    ' if is_last else '│   '}"
+            child_path = _join_upload_target(remote_path, entry.name)
+            lines.extend(
+                _render_remote_tree_lines(
+                    backend=backend,
+                    port=port,
+                    remote_path=child_path,
+                    prefix=child_prefix,
+                )
+            )
+
+    return lines
 
 
 def _print_plan(plan: DeployPlan) -> None:
