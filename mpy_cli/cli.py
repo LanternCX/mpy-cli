@@ -51,6 +51,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_upload(args)
     if args.command == "run":
         return _cmd_run(args)
+    if args.command == "delete":
+        return _cmd_delete(args)
 
     parser.print_help()
     return 1
@@ -97,6 +99,14 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--port", help="设备串口，例如 /dev/ttyACM0")
     run_parser.add_argument("--yes", action="store_true", help="跳过交互确认")
     run_parser.add_argument(
+        "--no-interactive", action="store_true", help="禁用 questionary 交互"
+    )
+
+    delete_parser = subparsers.add_parser("delete", help="删除设备端文件或目录")
+    delete_parser.add_argument("--path", help="设备目标路径")
+    delete_parser.add_argument("--port", help="设备串口，例如 /dev/ttyACM0")
+    delete_parser.add_argument("--yes", action="store_true", help="跳过交互确认")
+    delete_parser.add_argument(
         "--no-interactive", action="store_true", help="禁用 questionary 交互"
     )
 
@@ -447,6 +457,74 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     logger.info("run 执行完成: %s", final_remote_path)
     print("执行成功")
+    return 0
+
+
+def _cmd_delete(args: argparse.Namespace) -> int:
+    """@brief 执行 delete 子命令。"""
+
+    try:
+        cfg = load_config(Path(".mpy-cli.toml"))
+    except ConfigError as exc:
+        print(f"配置错误: {exc}")
+        print("请先运行 `mpy-cli init`")
+        return 1
+
+    runtime_paths = ensure_runtime_layout(Path(cfg.runtime_dir))
+    logger = setup_logging(runtime_paths.root)
+
+    interactive = not args.no_interactive
+    backend = MpremoteBackend(binary=cfg.mpremote_binary)
+    port = _resolve_port(
+        arg_port=args.port,
+        config_port=cfg.serial_port,
+        interactive=interactive,
+        scanner=backend,
+    )
+
+    if not port:
+        print("缺少串口参数，请通过 --port 或配置文件提供")
+        return 1
+
+    target_path = (args.path or "").strip()
+    if not target_path:
+        if not interactive:
+            print("非交互模式下必须通过 --path 指定设备目标路径")
+            return 1
+        target_path = _ask_text("请输入设备目标路径（相对 device_upload_dir）").strip()
+
+    if not target_path:
+        print("设备目标路径不能为空")
+        return 1
+
+    final_remote_path = _join_upload_target(cfg.device_upload_dir, target_path)
+    if not final_remote_path:
+        print("设备目标路径不能为空")
+        return 1
+
+    print("删除预览：")
+    print(f"- 端口: {port}")
+    print(f"- 路径: {target_path}")
+    print(f"- 远端: :{final_remote_path}")
+
+    if not args.yes and not _ask_confirm("确认执行删除？"):
+        print("已取消删除")
+        return 1
+
+    try:
+        backend.ensure_available()
+    except CommandExecutionError as exc:
+        print(str(exc))
+        return 1
+
+    try:
+        backend.delete_path(port=port, remote_path=final_remote_path)
+    except Exception as exc:  # noqa: BLE001
+        print(f"删除失败: {exc}")
+        return 2
+
+    logger.info("delete 执行完成: %s", final_remote_path)
+    print("删除成功")
     return 0
 
 

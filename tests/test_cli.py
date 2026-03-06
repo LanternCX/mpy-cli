@@ -141,6 +141,122 @@ def test_run_non_interactive_requires_path(tmp_path: Path, monkeypatch) -> None:
     assert code == 1
 
 
+def test_delete_non_interactive_requires_path(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    """@brief delete 非交互模式缺少 path 参数时应报错。"""
+
+    monkeypatch.chdir(tmp_path)
+    main(["init", "--no-interactive"])
+
+    code = main(["delete", "--no-interactive", "--port", "COM3", "--yes"])
+
+    assert code == 1
+
+
+def test_delete_executes_remote_path_with_device_upload_prefix(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief delete 应按 device_upload_dir 拼接设备目标路径。"""
+
+    monkeypatch.chdir(tmp_path)
+    main(["init", "--no-interactive"])
+
+    config = AppConfig(
+        serial_port="COM3",
+        ignore_file=".mpyignore",
+        runtime_dir=".mpy-cli",
+        source_dir=".",
+        mpremote_binary="mpremote",
+        device_upload_dir="apps/demo",
+        sync=SyncConfig(mode="incremental"),
+    )
+
+    captured: dict[str, object] = {}
+
+    class FakeBackend:
+        """@brief delete 测试后端。"""
+
+        def __init__(self, binary: str = "mpremote") -> None:
+            self.binary = binary
+
+        def ensure_available(self) -> None:
+            captured["ensure_available"] = True
+
+        def delete_path(self, port: str, remote_path: str):  # noqa: ANN201
+            captured["port"] = port
+            captured["remote_path"] = remote_path
+            return None
+
+    monkeypatch.setattr("mpy_cli.cli.load_config", lambda *_args, **_kwargs: config)
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+
+    code = main(
+        [
+            "delete",
+            "--no-interactive",
+            "--yes",
+            "--port",
+            "COM3",
+            "--path",
+            "obsolete.py",
+        ]
+    )
+
+    assert code == 0
+    assert captured["ensure_available"] is True
+    assert captured["port"] == "COM3"
+    assert captured["remote_path"] == "apps/demo/obsolete.py"
+
+
+def test_delete_returns_failure_code_when_backend_delete_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief delete 执行失败时应返回失败退出码。"""
+
+    monkeypatch.chdir(tmp_path)
+    main(["init", "--no-interactive"])
+
+    config = AppConfig(
+        serial_port="COM3",
+        ignore_file=".mpyignore",
+        runtime_dir=".mpy-cli",
+        source_dir=".",
+        mpremote_binary="mpremote",
+        device_upload_dir="",
+        sync=SyncConfig(mode="incremental"),
+    )
+
+    class FakeBackend:
+        """@brief delete 失败路径测试后端。"""
+
+        def __init__(self, binary: str = "mpremote") -> None:
+            self.binary = binary
+
+        def ensure_available(self) -> None:
+            return
+
+        def delete_path(self, port: str, remote_path: str):  # noqa: ANN201
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr("mpy_cli.cli.load_config", lambda *_args, **_kwargs: config)
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+
+    code = main(
+        [
+            "delete",
+            "--no-interactive",
+            "--yes",
+            "--port",
+            "COM3",
+            "--path",
+            "obsolete.py",
+        ]
+    )
+
+    assert code == 2
+
+
 def test_run_executes_remote_file_with_device_upload_prefix(
     tmp_path: Path,
     monkeypatch,

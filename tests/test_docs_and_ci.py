@@ -49,6 +49,7 @@ def test_readme_lists_all_cli_parameters() -> None:
         "mpy-cli deploy",
         "mpy-cli upload",
         "mpy-cli run",
+        "mpy-cli delete",
         "--force",
         "--no-interactive",
         "--mode",
@@ -74,4 +75,12 @@ def test_readme_lists_run_command_parameters() -> None:
 
     content = Path("README.md").read_text(encoding="utf-8")
     for token in ["mpy-cli run", "--path"]:
+        assert token in content
+
+
+def test_readme_lists_delete_command_parameters() -> None:
+    """@brief README 应包含 delete 命令及参数说明。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+    for token in ["mpy-cli delete", "--path"]:
         assert token in content

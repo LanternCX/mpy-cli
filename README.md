@@ -148,6 +148,7 @@ mpy-cli plan
 mpy-cli deploy
 mpy-cli upload
 mpy-cli run
+mpy-cli delete
 ```
 
 说明：
@@ -258,6 +259,26 @@ mpy-cli run --path main.py
 ```
 
 若配置 `device_upload_dir = "apps/demo"`，则会执行 `:apps/demo/main.py`。
+
+### `mpy-cli delete`
+
+```bash
+mpy-cli delete [--path PATH] [--port PORT] [--no-interactive] [--yes]
+```
+
+- `--path`：设备目标路径，语义为相对 `device_upload_dir`，可为文件或目录。
+- `--port`：指定设备端口。
+- `--no-interactive`：禁用交互提问；此时需显式提供 `--path`。
+- `--yes`：跳过执行前确认。
+
+推荐用法：
+
+```bash
+mpy-cli delete --path obsolete.py
+```
+
+若配置 `device_upload_dir = "apps/demo"`，则会删除 `:apps/demo/obsolete.py`。
+当 `--path` 指向目录时，默认递归删除整个目录。
 
 ---
 

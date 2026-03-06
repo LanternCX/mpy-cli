@@ -78,6 +78,12 @@ class MpremoteBackend:
             f":{remote}",
         ]
 
+    def build_delete_tree_command(self, port: str, remote: str) -> list[str]:
+        """@brief 构建设备递归删除命令。"""
+
+        script = _build_remote_delete_script(remote)
+        return [self.binary, "connect", port, "resume", "exec", script]
+
     def build_run_command(self, port: str, remote: str) -> list[str]:
         """@brief 构建设备脚本执行命令。"""
 
@@ -148,6 +154,12 @@ class MpremoteBackend:
         """@brief 删除设备文件。"""
 
         cmd = self.build_delete_command(port=port, remote=remote_path)
+        return self._run(cmd)
+
+    def delete_path(self, port: str, remote_path: str) -> CommandResult:
+        """@brief 删除设备路径（文件或目录）。"""
+
+        cmd = self.build_delete_tree_command(port=port, remote=remote_path)
         return self._run(cmd)
 
     def wipe_root(self, port: str, target_dir: str | None = None) -> CommandResult:
@@ -320,4 +332,51 @@ def _build_remote_run_script(remote_path: str) -> str:
         "    raise OSError('target file not found: ' + target_raw)\n"
         "globals_dict = {'__name__': '__main__', '__file__': resolved}\n"
         "exec(compile(source, resolved, 'exec'), globals_dict, globals_dict)\n"
+    )
+
+
+def _build_remote_delete_script(remote_path: str) -> str:
+    """@brief 生成设备端删除片段。"""
+
+    normalized_remote_path = _normalize_remote_file(remote_path)
+    return (
+        f"target_raw = {normalized_remote_path!r}\n"
+        "import os\n"
+        "if not target_raw:\n"
+        "    raise OSError('empty target path')\n"
+        "roots = []\n"
+        "try:\n"
+        "    roots = os.listdir('/')\n"
+        "except OSError:\n"
+        "    roots = []\n"
+        "candidates = []\n"
+        "if target_raw.startswith('/'):\n"
+        "    candidates.append(target_raw)\n"
+        "else:\n"
+        "    candidates.append('/' + target_raw)\n"
+        "    if 'flash' in roots:\n"
+        "        candidates.append('/flash/' + target_raw)\n"
+        "protected_dirs = {'/', '/flash'}\n"
+        "def _remove_tree(path):\n"
+        "    try:\n"
+        "        names = os.listdir(path)\n"
+        "    except OSError:\n"
+        "        os.remove(path)\n"
+        "        return\n"
+        "    for name in names:\n"
+        "        child = path + '/' + name if path != '/' else '/' + name\n"
+        "        _remove_tree(child)\n"
+        "    if path in protected_dirs:\n"
+        "        return\n"
+        "    os.rmdir(path)\n"
+        "resolved = None\n"
+        "for candidate in candidates:\n"
+        "    try:\n"
+        "        _remove_tree(candidate)\n"
+        "        resolved = candidate\n"
+        "        break\n"
+        "    except OSError:\n"
+        "        pass\n"
+        "if resolved is None:\n"
+        "    raise OSError('target path not found: ' + target_raw)\n"
     )
