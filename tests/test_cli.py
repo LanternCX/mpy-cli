@@ -482,6 +482,141 @@ def test_upload_interactive_allows_custom_remote_path(
     assert operation.remote_path == "apps/custom.py"
 
 
+def test_upload_interactive_defaults_remote_to_source_relative_path(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief source_dir 非根目录时 upload 默认远端应为相对 source_dir 路径。"""
+
+    monkeypatch.chdir(tmp_path)
+    main(["init", "--no-interactive"])
+
+    local_file = tmp_path / "app_src" / "seekfree_demo" / "E01_demo.py"
+    local_file.parent.mkdir(parents=True, exist_ok=True)
+    local_file.write_text("print('ok')\n", encoding="utf-8")
+
+    config = AppConfig(
+        serial_port="COM3",
+        ignore_file=".mpyignore",
+        runtime_dir=".mpy-cli",
+        source_dir="app_src",
+        mpremote_binary="mpremote",
+        device_upload_dir="",
+        sync=SyncConfig(mode="incremental"),
+    )
+
+    asked_defaults: list[str] = []
+
+    def fake_ask_text(message: str, default: str = "") -> str:
+        if "本地文件路径" in message:
+            return "app_src/seekfree_demo/E01_demo.py"
+        if "设备目标路径" in message:
+            asked_defaults.append(default)
+            return default
+        return default
+
+    captured: dict[str, object] = {}
+
+    class FakeBackend:
+        """@brief upload 测试后端。"""
+
+        def __init__(self, binary: str = "mpremote") -> None:
+            self.binary = binary
+
+        def ensure_available(self) -> None:
+            return
+
+    class FakeExecutor:
+        """@brief upload 测试执行器。"""
+
+        def __init__(self, backend: object, logger: object | None = None) -> None:
+            self.backend = backend
+            self.logger = logger
+
+        def execute(self, plan, port: str) -> ExecutionReport:  # noqa: ANN001
+            captured["plan"] = plan
+            captured["port"] = port
+            return ExecutionReport(success_count=1, failure_count=0, failures=[])
+
+    monkeypatch.setattr("mpy_cli.cli.load_config", lambda *_args, **_kwargs: config)
+    monkeypatch.setattr("mpy_cli.cli._ask_text", fake_ask_text)
+    monkeypatch.setattr("mpy_cli.cli._ask_confirm", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+    monkeypatch.setattr("mpy_cli.cli.DeployExecutor", FakeExecutor)
+
+    code = main(["upload", "--port", "COM3"])
+
+    assert code == 0
+    assert asked_defaults == ["seekfree_demo/E01_demo.py"]
+    plan = captured["plan"]
+    operation = plan.operations[0]
+    assert operation.remote_path == "seekfree_demo/E01_demo.py"
+
+
+def test_upload_interactive_defaults_remote_to_local_when_outside_source_dir(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief 本地文件不在 source_dir 下时 upload 默认远端应回退为本地路径。"""
+
+    monkeypatch.chdir(tmp_path)
+    main(["init", "--no-interactive"])
+
+    local_file = tmp_path / "external" / "E01_demo.py"
+    local_file.parent.mkdir(parents=True, exist_ok=True)
+    local_file.write_text("print('ok')\n", encoding="utf-8")
+
+    config = AppConfig(
+        serial_port="COM3",
+        ignore_file=".mpyignore",
+        runtime_dir=".mpy-cli",
+        source_dir="app_src",
+        mpremote_binary="mpremote",
+        device_upload_dir="",
+        sync=SyncConfig(mode="incremental"),
+    )
+
+    asked_defaults: list[str] = []
+
+    def fake_ask_text(message: str, default: str = "") -> str:
+        if "本地文件路径" in message:
+            return "external/E01_demo.py"
+        if "设备目标路径" in message:
+            asked_defaults.append(default)
+            return default
+        return default
+
+    class FakeBackend:
+        """@brief upload 测试后端。"""
+
+        def __init__(self, binary: str = "mpremote") -> None:
+            self.binary = binary
+
+        def ensure_available(self) -> None:
+            return
+
+    class FakeExecutor:
+        """@brief upload 测试执行器。"""
+
+        def __init__(self, backend: object, logger: object | None = None) -> None:
+            self.backend = backend
+            self.logger = logger
+
+        def execute(self, plan, port: str) -> ExecutionReport:  # noqa: ANN001
+            return ExecutionReport(success_count=1, failure_count=0, failures=[])
+
+    monkeypatch.setattr("mpy_cli.cli.load_config", lambda *_args, **_kwargs: config)
+    monkeypatch.setattr("mpy_cli.cli._ask_text", fake_ask_text)
+    monkeypatch.setattr("mpy_cli.cli._ask_confirm", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+    monkeypatch.setattr("mpy_cli.cli.DeployExecutor", FakeExecutor)
+
+    code = main(["upload", "--port", "COM3"])
+
+    assert code == 0
+    assert asked_defaults == ["external/E01_demo.py"]
+
+
 def test_upload_rejects_nonexistent_local_file(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     """@brief upload 本地文件不存在时应报错。"""
 
@@ -612,4 +747,5 @@ def test_deploy_incremental_resolves_upload_local_path_from_source_dir(
     plan = captured["plan"]
     operation = plan.operations[0]
     assert operation.local_path == (source_root / "main.py").resolve().as_posix()
+    assert operation.remote_path == "main.py"
     assert captured["port"] == "COM3"

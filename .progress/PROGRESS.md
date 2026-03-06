@@ -40,3 +40,4 @@ abc123d (or TBD)
 | --- | --- | --- | --- | --- |
 | 2026-03-03-1 | 2026-03-03 | Stabilized full deploy flow and improved onboarding UX | `.progress/entries/2026/2026-03-03-1.md` | deploy, mpremote, config-wizard, docs |
 | 2026-03-04-1 | 2026-03-04 | Added configurable device upload directory with scoped full wipe | `.progress/entries/2026/2026-03-04-1.md` | sync, device-upload-dir, full-mode, planner, mpremote |
+| 2026-03-06-1 | 2026-03-06 | 统一 source_dir 为远端根映射语义 | `.progress/entries/2026/2026-03-06-1.md` | source-dir, scanner, incremental, upload, docs |

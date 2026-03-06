@@ -187,6 +187,10 @@ mpy-cli config
 
 常用配置项说明：
 
+- `source_dir`：本地源码根目录。`plan/deploy` 计算远端路径时以该目录为根，不保留 `source_dir` 前缀。
+- `.mpyignore`：规则匹配对象为“相对 `source_dir` 的路径”。
+- 当 `source_dir = "src"` 时，本地 `src/main.py` 对应远端 `:main.py`。
+- 若历史 `.mpyignore` 规则包含 `src/...` 前缀，需迁移为相对 `source_dir` 的写法。
 - `device_upload_dir`：设备端上传目录前缀，留空表示设备根目录。
 - 当 `device_upload_dir = "apps/demo"` 时，本地 `main.py` 会上传到设备 `:apps/demo/main.py`。
 - `full` 模式会清空该上传目录，而不是整机设备根目录。
@@ -228,7 +232,7 @@ mpy-cli upload [--local LOCAL] [--remote REMOTE] [--port PORT] [--no-interactive
 ```
 
 - `--local`：本地文件路径（如 `seekfree_demo/E01_demo.py`）。
-- `--remote`：设备目标路径；不传时交互模式默认与本地路径一致，可手动修改。
+- `--remote`：设备目标路径；不传时交互模式默认优先使用“相对 `source_dir` 路径”，若本地文件不在 `source_dir` 下则回退为本地输入路径，可手动修改。
 - `--port`：指定设备端口。
 - `--no-interactive`：禁用交互提问；此时需显式提供 `--local` 和 `--remote`。
 - `--yes`：跳过执行前确认。

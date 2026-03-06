@@ -84,3 +84,19 @@ def test_readme_lists_delete_command_parameters() -> None:
     content = Path("README.md").read_text(encoding="utf-8")
     for token in ["mpy-cli delete", "--path"]:
         assert token in content
+
+
+def test_readme_mentions_source_dir_root_mapping() -> None:
+    """@brief README 应说明 source_dir 作为远端路径映射根目录。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+    for token in ["source_dir", "相对 `source_dir`", "不保留 `source_dir` 前缀"]:
+        assert token in content
+
+
+def test_readme_mentions_upload_default_remote_path_semantics() -> None:
+    """@brief README 应说明 upload 默认远端路径的 source_dir 语义。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+    assert "默认优先使用“相对 `source_dir` 路径”" in content
+    assert "默认与本地路径一致" not in content
