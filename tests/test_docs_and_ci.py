@@ -48,12 +48,16 @@ def test_readme_lists_all_cli_parameters() -> None:
         "mpy-cli plan",
         "mpy-cli deploy",
         "mpy-cli upload",
+        "mpy-cli run",
+        "mpy-cli delete",
+        "mpy-cli tree",
         "--force",
         "--no-interactive",
         "--mode",
         "--port",
         "--local",
         "--remote",
+        "--path",
         "--yes",
     ]:
         assert token in content
@@ -65,3 +69,43 @@ def test_readme_mentions_device_upload_dir_config() -> None:
     content = Path("README.md").read_text(encoding="utf-8")
     assert "device_upload_dir" in content
     assert "上传目录" in content
+
+
+def test_readme_lists_run_command_parameters() -> None:
+    """@brief README 应包含 run 命令及参数说明。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+    for token in ["mpy-cli run", "--path"]:
+        assert token in content
+
+
+def test_readme_lists_delete_command_parameters() -> None:
+    """@brief README 应包含 delete 命令及参数说明。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+    for token in ["mpy-cli delete", "--path"]:
+        assert token in content
+
+
+def test_readme_mentions_source_dir_root_mapping() -> None:
+    """@brief README 应说明 source_dir 作为远端路径映射根目录。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+    for token in ["source_dir", "相对 `source_dir`", "不保留 `source_dir` 前缀"]:
+        assert token in content
+
+
+def test_readme_mentions_upload_default_remote_path_semantics() -> None:
+    """@brief README 应说明 upload 默认远端路径的 source_dir 语义。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+    assert "默认优先使用“相对 `source_dir` 路径”" in content
+    assert "默认与本地路径一致" not in content
+
+
+def test_readme_lists_tree_command_parameters() -> None:
+    """@brief README 应包含 tree 命令及参数说明。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+    for token in ["mpy-cli tree", "--path"]:
+        assert token in content

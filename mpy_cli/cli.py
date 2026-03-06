@@ -6,7 +6,11 @@ import argparse
 from pathlib import Path
 from typing import Protocol, Sequence
 
-from mpy_cli.backend.mpremote import CommandExecutionError, MpremoteBackend
+from mpy_cli.backend.mpremote import (
+    CommandExecutionError,
+    MpremoteBackend,
+    RemoteDirEntry,
+)
 from mpy_cli.config import (
     ConfigError,
     default_config,
@@ -16,7 +20,7 @@ from mpy_cli.config import (
 )
 from mpy_cli.config_wizard import run_config_wizard
 from mpy_cli.executor import DeployExecutor
-from mpy_cli.gitdiff import ChangeEntry, GitDiffError, collect_git_changes
+from mpy_cli.gitdiff import GitDiffError, collect_git_changes
 from mpy_cli.ignore import IgnoreMatcher, init_ignore
 from mpy_cli.logging import setup_logging
 from mpy_cli.planner import DeployPlan, PlanOperation, build_plan
@@ -49,6 +53,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_plan_or_deploy(args)
     if args.command == "upload":
         return _cmd_upload(args)
+    if args.command == "run":
+        return _cmd_run(args)
+    if args.command == "delete":
+        return _cmd_delete(args)
+    if args.command == "tree":
+        return _cmd_tree(args)
 
     parser.print_help()
     return 1
@@ -87,6 +97,29 @@ def build_parser() -> argparse.ArgumentParser:
     upload_parser.add_argument("--port", help="设备串口，例如 /dev/ttyACM0")
     upload_parser.add_argument("--yes", action="store_true", help="跳过交互确认")
     upload_parser.add_argument(
+        "--no-interactive", action="store_true", help="禁用 questionary 交互"
+    )
+
+    run_parser = subparsers.add_parser("run", help="执行设备端脚本")
+    run_parser.add_argument("--path", help="设备目标文件路径")
+    run_parser.add_argument("--port", help="设备串口，例如 /dev/ttyACM0")
+    run_parser.add_argument("--yes", action="store_true", help="跳过交互确认")
+    run_parser.add_argument(
+        "--no-interactive", action="store_true", help="禁用 questionary 交互"
+    )
+
+    delete_parser = subparsers.add_parser("delete", help="删除设备端文件或目录")
+    delete_parser.add_argument("--path", help="设备目标路径")
+    delete_parser.add_argument("--port", help="设备串口，例如 /dev/ttyACM0")
+    delete_parser.add_argument("--yes", action="store_true", help="跳过交互确认")
+    delete_parser.add_argument(
+        "--no-interactive", action="store_true", help="禁用 questionary 交互"
+    )
+
+    tree_parser = subparsers.add_parser("tree", help="读取设备端目录树")
+    tree_parser.add_argument("--path", help="设备目标目录路径")
+    tree_parser.add_argument("--port", help="设备串口，例如 /dev/ttyACM0")
+    tree_parser.add_argument(
         "--no-interactive", action="store_true", help="禁用 questionary 交互"
     )
 
@@ -176,10 +209,6 @@ def _cmd_plan_or_deploy(args: argparse.Namespace) -> int:
     source_root = _resolve_source_root(
         project_root=project_root, source_dir=cfg.source_dir
     )
-    source_path_prefix = _derive_source_path_prefix(
-        project_root=project_root,
-        source_root=source_root,
-    )
     matcher = IgnoreMatcher.from_file(project_root / cfg.ignore_file)
 
     try:
@@ -191,10 +220,7 @@ def _cmd_plan_or_deploy(args: argparse.Namespace) -> int:
             )
             changes = []
         else:
-            changes = _prefix_change_paths(
-                collect_git_changes(source_root),
-                source_path_prefix=source_path_prefix,
-            )
+            changes = collect_git_changes(source_root)
             local_files = []
     except GitDiffError as exc:
         print(f"Git 变更读取失败: {exc}")
@@ -233,7 +259,6 @@ def _cmd_plan_or_deploy(args: argparse.Namespace) -> int:
         execution_plan = _resolve_incremental_upload_local_paths(
             plan=plan,
             source_root=source_root,
-            source_path_prefix=source_path_prefix,
         )
 
     report = DeployExecutor(backend=backend, logger=logger).execute(
@@ -295,12 +320,16 @@ def _cmd_upload(args: argparse.Namespace) -> int:
         print("本地文件路径不能为空")
         return 1
 
-    default_remote_path = local_path
+    default_remote_path = _derive_upload_default_remote_path(
+        local_path=local_path,
+        project_root=Path.cwd().resolve(),
+        source_dir=cfg.source_dir,
+    )
     if args.remote is not None and args.remote.strip():
         remote_path = args.remote.strip()
     elif interactive:
         remote_path = _ask_text(
-            "请输入设备目标路径（回车默认与本地路径一致）",
+            "请输入设备目标路径（回车使用默认推导路径）",
             default=default_remote_path,
         ).strip()
         if not remote_path:
@@ -360,6 +389,238 @@ def _cmd_upload(args: argparse.Namespace) -> int:
 
     print("上传成功")
     return 0
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    """@brief 执行 run 子命令。"""
+
+    try:
+        cfg = load_config(Path(".mpy-cli.toml"))
+    except ConfigError as exc:
+        print(f"配置错误: {exc}")
+        print("请先运行 `mpy-cli init`")
+        return 1
+
+    runtime_paths = ensure_runtime_layout(Path(cfg.runtime_dir))
+    logger = setup_logging(runtime_paths.root)
+
+    interactive = not args.no_interactive
+    backend = MpremoteBackend(binary=cfg.mpremote_binary)
+    port = _resolve_port(
+        arg_port=args.port,
+        config_port=cfg.serial_port,
+        interactive=interactive,
+        scanner=backend,
+    )
+
+    if not port:
+        print("缺少串口参数，请通过 --port 或配置文件提供")
+        return 1
+
+    target_path = (args.path or "").strip()
+    if not target_path:
+        if not interactive:
+            print("非交互模式下必须通过 --path 指定设备目标文件路径")
+            return 1
+        target_path = _ask_text(
+            "请输入设备目标文件路径（相对 device_upload_dir）"
+        ).strip()
+
+    if not target_path:
+        print("设备目标文件路径不能为空")
+        return 1
+
+    final_remote_path = _join_upload_target(cfg.device_upload_dir, target_path)
+    if not final_remote_path:
+        print("设备目标文件路径不能为空")
+        return 1
+
+    print("执行预览：")
+    print(f"- 端口: {port}")
+    print(f"- 路径: {target_path}")
+    print(f"- 远端: :{final_remote_path}")
+
+    if not args.yes and not _ask_confirm("确认执行脚本？"):
+        print("已取消执行")
+        return 1
+
+    try:
+        backend.ensure_available()
+    except CommandExecutionError as exc:
+        print(str(exc))
+        return 1
+
+    try:
+        result = backend.run_file(port=port, remote_path=final_remote_path)
+    except Exception as exc:  # noqa: BLE001
+        print(f"执行失败: {exc}")
+        return 2
+
+    if result is not None:
+        stdout = getattr(result, "stdout", "")
+        stderr = getattr(result, "stderr", "")
+        if isinstance(stdout, str) and stdout.strip():
+            print(stdout.rstrip())
+        if isinstance(stderr, str) and stderr.strip():
+            print(stderr.rstrip())
+
+    logger.info("run 执行完成: %s", final_remote_path)
+    print("执行成功")
+    return 0
+
+
+def _cmd_delete(args: argparse.Namespace) -> int:
+    """@brief 执行 delete 子命令。"""
+
+    try:
+        cfg = load_config(Path(".mpy-cli.toml"))
+    except ConfigError as exc:
+        print(f"配置错误: {exc}")
+        print("请先运行 `mpy-cli init`")
+        return 1
+
+    runtime_paths = ensure_runtime_layout(Path(cfg.runtime_dir))
+    logger = setup_logging(runtime_paths.root)
+
+    interactive = not args.no_interactive
+    backend = MpremoteBackend(binary=cfg.mpremote_binary)
+    port = _resolve_port(
+        arg_port=args.port,
+        config_port=cfg.serial_port,
+        interactive=interactive,
+        scanner=backend,
+    )
+
+    if not port:
+        print("缺少串口参数，请通过 --port 或配置文件提供")
+        return 1
+
+    target_path = (args.path or "").strip()
+    if not target_path:
+        if not interactive:
+            print("非交互模式下必须通过 --path 指定设备目标路径")
+            return 1
+        target_path = _ask_text("请输入设备目标路径（相对 device_upload_dir）").strip()
+
+    if not target_path:
+        print("设备目标路径不能为空")
+        return 1
+
+    final_remote_path = _join_upload_target(cfg.device_upload_dir, target_path)
+    if not final_remote_path:
+        print("设备目标路径不能为空")
+        return 1
+
+    print("删除预览：")
+    print(f"- 端口: {port}")
+    print(f"- 路径: {target_path}")
+    print(f"- 远端: :{final_remote_path}")
+
+    if not args.yes and not _ask_confirm("确认执行删除？"):
+        print("已取消删除")
+        return 1
+
+    try:
+        backend.ensure_available()
+    except CommandExecutionError as exc:
+        print(str(exc))
+        return 1
+
+    try:
+        backend.delete_path(port=port, remote_path=final_remote_path)
+    except Exception as exc:  # noqa: BLE001
+        print(f"删除失败: {exc}")
+        return 2
+
+    logger.info("delete 执行完成: %s", final_remote_path)
+    print("删除成功")
+    return 0
+
+
+def _cmd_tree(args: argparse.Namespace) -> int:
+    """@brief 执行 tree 子命令。"""
+
+    try:
+        cfg = load_config(Path(".mpy-cli.toml"))
+    except ConfigError as exc:
+        print(f"配置错误: {exc}")
+        print("请先运行 `mpy-cli init`")
+        return 1
+
+    runtime_paths = ensure_runtime_layout(Path(cfg.runtime_dir))
+    logger = setup_logging(runtime_paths.root)
+
+    interactive = not args.no_interactive
+    backend = MpremoteBackend(binary=cfg.mpremote_binary)
+    port = _resolve_port(
+        arg_port=args.port,
+        config_port=cfg.serial_port,
+        interactive=interactive,
+        scanner=backend,
+    )
+
+    if not port:
+        print("缺少串口参数，请通过 --port 或配置文件提供")
+        return 1
+
+    target_path = (args.path or "").strip()
+    final_remote_path = _join_upload_target(cfg.device_upload_dir, target_path)
+
+    try:
+        backend.ensure_available()
+    except CommandExecutionError as exc:
+        print(str(exc))
+        return 1
+
+    try:
+        print(final_remote_path or "/")
+        lines = _render_remote_tree_lines(
+            backend=backend,
+            port=port,
+            remote_path=final_remote_path,
+            prefix="",
+        )
+        for line in lines:
+            print(line)
+    except Exception as exc:  # noqa: BLE001
+        print(f"读取目录失败: {exc}")
+        return 2
+
+    logger.info("tree 执行完成: %s", final_remote_path or "/")
+    return 0
+
+
+def _render_remote_tree_lines(
+    backend: MpremoteBackend,
+    port: str,
+    remote_path: str,
+    prefix: str,
+) -> list[str]:
+    """@brief 递归渲染设备目录树。"""
+
+    entries: list[RemoteDirEntry] = backend.list_dir(port=port, remote_path=remote_path)
+    ordered_entries = sorted(entries, key=lambda item: (not item.is_dir, item.name))
+
+    lines: list[str] = []
+    for index, entry in enumerate(ordered_entries):
+        is_last = index == len(ordered_entries) - 1
+        branch = "└── " if is_last else "├── "
+        suffix = "/" if entry.is_dir else ""
+        lines.append(f"{prefix}{branch}{entry.name}{suffix}")
+
+        if entry.is_dir:
+            child_prefix = f"{prefix}{'    ' if is_last else '│   '}"
+            child_path = _join_upload_target(remote_path, entry.name)
+            lines.extend(
+                _render_remote_tree_lines(
+                    backend=backend,
+                    port=port,
+                    remote_path=child_path,
+                    prefix=child_prefix,
+                )
+            )
+
+    return lines
 
 
 def _print_plan(plan: DeployPlan) -> None:
@@ -461,60 +722,31 @@ def _resolve_source_root(project_root: Path, source_dir: str) -> Path:
     return (project_root / source_path).resolve()
 
 
-def _derive_source_path_prefix(project_root: Path, source_root: Path) -> str:
-    """@brief 推导 source_dir 对应的项目相对前缀。"""
+def _derive_upload_default_remote_path(
+    local_path: str,
+    project_root: Path,
+    source_dir: str,
+) -> str:
+    """@brief 计算 upload 交互默认设备路径。"""
+
+    normalized_local_path = local_path.strip().replace("\\", "/")
+    source_root = _resolve_source_root(project_root=project_root, source_dir=source_dir)
+
+    local_file = Path(normalized_local_path)
+    if local_file.is_absolute():
+        resolved_local_file = local_file.resolve()
+    else:
+        resolved_local_file = (project_root / local_file).resolve()
 
     try:
-        relative = source_root.relative_to(project_root).as_posix()
+        return resolved_local_file.relative_to(source_root).as_posix()
     except ValueError:
-        return ""
-
-    normalized = relative.strip("/")
-    if normalized in {"", "."}:
-        return ""
-    return normalized
-
-
-def _prefix_change_paths(
-    changes: list[ChangeEntry],
-    source_path_prefix: str,
-) -> list[ChangeEntry]:
-    """@brief 将增量变更路径补齐为项目级相对路径。"""
-
-    if not source_path_prefix:
-        return changes
-
-    prefixed: list[ChangeEntry] = []
-    for change in changes:
-        src_path = None
-        if change.src_path is not None:
-            src_path = _join_source_path_prefix(source_path_prefix, change.src_path)
-        prefixed.append(
-            ChangeEntry(
-                status=change.status,
-                src_path=src_path,
-                dst_path=_join_source_path_prefix(source_path_prefix, change.dst_path),
-            )
-        )
-    return prefixed
-
-
-def _join_source_path_prefix(source_path_prefix: str, path: str) -> str:
-    """@brief 拼接 source_dir 前缀与相对路径。"""
-
-    normalized_prefix = source_path_prefix.strip().replace("\\", "/").strip("/")
-    normalized_path = path.strip().replace("\\", "/").lstrip("/")
-    if not normalized_prefix:
-        return normalized_path
-    if not normalized_path:
-        return normalized_prefix
-    return f"{normalized_prefix}/{normalized_path}"
+        return normalized_local_path
 
 
 def _resolve_incremental_upload_local_paths(
     plan: DeployPlan,
     source_root: Path,
-    source_path_prefix: str,
 ) -> DeployPlan:
     """@brief 将增量上传的 local_path 解析为 source_dir 下的绝对路径。"""
 
@@ -529,7 +761,6 @@ def _resolve_incremental_upload_local_paths(
         resolved_local_path = _resolve_incremental_local_path(
             local_path=operation.local_path,
             source_root=normalized_source_root,
-            source_path_prefix=source_path_prefix,
         )
         operations.append(
             PlanOperation(
@@ -546,33 +777,12 @@ def _resolve_incremental_upload_local_paths(
 def _resolve_incremental_local_path(
     local_path: str,
     source_root: Path,
-    source_path_prefix: str,
 ) -> str:
     """@brief 计算增量上传操作对应的本地绝对文件路径。"""
 
-    relative_path = _strip_source_path_prefix(
-        path=local_path,
-        source_path_prefix=source_path_prefix,
-    )
-    resolved_path = (source_root / relative_path).resolve()
+    normalized_path = local_path.strip().replace("\\", "/").lstrip("/")
+    resolved_path = (source_root / normalized_path).resolve()
     return resolved_path.as_posix()
-
-
-def _strip_source_path_prefix(path: str, source_path_prefix: str) -> str:
-    """@brief 去除路径中的 source_dir 项目相对前缀。"""
-
-    normalized_path = path.strip().replace("\\", "/").lstrip("/")
-    normalized_prefix = source_path_prefix.strip().replace("\\", "/").strip("/")
-
-    if not normalized_prefix:
-        return normalized_path
-    if normalized_path == normalized_prefix:
-        return ""
-
-    prefix_token = f"{normalized_prefix}/"
-    if normalized_path.startswith(prefix_token):
-        return normalized_path[len(prefix_token) :]
-    return normalized_path
 
 
 def _join_upload_target(remote_base_dir: str, remote_path: str) -> str:

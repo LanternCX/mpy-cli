@@ -32,10 +32,8 @@ def list_local_files(
     source_path = Path(source_dir)
     if source_path.is_absolute():
         base_dir = source_path.resolve()
-        map_to_project = False
     else:
         base_dir = (project_root / source_path).resolve()
-        map_to_project = True
 
     if not base_dir.exists():
         return []
@@ -58,9 +56,7 @@ def list_local_files(
 
         remote_path = _to_remote_path(
             file_path=path,
-            project_root=project_root,
             source_root=base_dir,
-            map_to_project=map_to_project,
         )
 
         if any(part in ignored_dirs for part in remote_path.split("/")):
@@ -78,16 +74,8 @@ def list_local_files(
 
 def _to_remote_path(
     file_path: Path,
-    project_root: Path,
     source_root: Path,
-    map_to_project: bool,
 ) -> str:
     """@brief 计算设备端相对路径。"""
-
-    if map_to_project:
-        try:
-            return file_path.relative_to(project_root).as_posix()
-        except ValueError:
-            pass
 
     return file_path.relative_to(source_root).as_posix()

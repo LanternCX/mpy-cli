@@ -45,6 +45,86 @@ def test_delete_builds_expected_command() -> None:
     ]
 
 
+def test_run_builds_expected_command() -> None:
+    """@brief run 命令应构建为 mpremote resume exec 调用。"""
+
+    backend = MpremoteBackend(binary="mpremote")
+    cmd = backend.build_run_command(
+        port="/dev/ttyACM0",
+        remote="apps/demo/main.py",
+    )
+
+    assert cmd[0:4] == ["mpremote", "connect", "/dev/ttyACM0", "resume"]
+    assert cmd[4] == "exec"
+    assert "apps/demo/main.py" in cmd[5]
+
+
+def test_run_file_invokes_exec_command() -> None:
+    """@brief run_file 应调用 exec 命令执行目标脚本。"""
+
+    called: list[list[str]] = []
+
+    def fake_runner(command, capture_output, text, check):  # noqa: ANN001
+        called.append(command)
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout="ok\n",
+            stderr="",
+        )
+
+    backend = MpremoteBackend(
+        binary="mpremote",
+        runner=fake_runner,
+        resolver=lambda _: "/usr/bin/mpremote",
+    )
+
+    backend.run_file(port="/dev/ttyACM0", remote_path="apps/demo/main.py")
+
+    assert called
+    assert called[0][0:5] == ["mpremote", "connect", "/dev/ttyACM0", "resume", "exec"]
+
+
+def test_delete_tree_builds_expected_command() -> None:
+    """@brief delete 命令应构建为 mpremote resume exec 调用。"""
+
+    backend = MpremoteBackend(binary="mpremote")
+    cmd = backend.build_delete_tree_command(
+        port="/dev/ttyACM0",
+        remote="apps/demo",
+    )
+
+    assert cmd[0:4] == ["mpremote", "connect", "/dev/ttyACM0", "resume"]
+    assert cmd[4] == "exec"
+    assert "apps/demo" in cmd[5]
+
+
+def test_delete_path_invokes_exec_command() -> None:
+    """@brief delete_path 应调用 exec 命令执行删除。"""
+
+    called: list[list[str]] = []
+
+    def fake_runner(command, capture_output, text, check):  # noqa: ANN001
+        called.append(command)
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+
+    backend = MpremoteBackend(
+        binary="mpremote",
+        runner=fake_runner,
+        resolver=lambda _: "/usr/bin/mpremote",
+    )
+
+    backend.delete_path(port="/dev/ttyACM0", remote_path="apps/demo")
+
+    assert called
+    assert called[0][0:5] == ["mpremote", "connect", "/dev/ttyACM0", "resume", "exec"]
+
+
 def test_wipe_builds_expected_command_with_resume() -> None:
     """@brief wipe 命令应通过 resume 模式进入执行。"""
 
@@ -162,3 +242,45 @@ def test_upload_file_creates_remote_parent_dirs_before_copy() -> None:
         ":services/commands",
     ]
     assert called[2][-4:] == ["fs", "cp", "/tmp/local.py", ":services/commands/cmd.py"]
+
+
+def test_list_dir_builds_expected_exec_command() -> None:
+    """@brief list_dir 应构建为 mpremote resume exec 调用。"""
+
+    backend = MpremoteBackend(binary="mpremote")
+    cmd = backend.build_list_dir_command(
+        port="/dev/ttyACM0",
+        remote="apps/demo",
+    )
+
+    assert cmd[0:4] == ["mpremote", "connect", "/dev/ttyACM0", "resume"]
+    assert cmd[4] == "exec"
+    assert "apps/demo" in cmd[5]
+
+
+def test_list_dir_parses_typed_entries() -> None:
+    """@brief list_dir 应将 D/F 标记输出解析为结构化目录条目。"""
+
+    called: list[list[str]] = []
+
+    def fake_runner(command, capture_output, text, check):  # noqa: ANN001
+        called.append(command)
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout="D\tapps\nF\tmain.py\n",
+            stderr="",
+        )
+
+    backend = MpremoteBackend(
+        binary="mpremote",
+        runner=fake_runner,
+        resolver=lambda _: "/usr/bin/mpremote",
+    )
+
+    entries = backend.list_dir(port="/dev/ttyACM0", remote_path="apps/demo")
+
+    assert called
+    assert called[0][0:5] == ["mpremote", "connect", "/dev/ttyACM0", "resume", "exec"]
+    assert [entry.name for entry in entries] == ["apps", "main.py"]
+    assert [entry.is_dir for entry in entries] == [True, False]
