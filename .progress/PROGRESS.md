@@ -1,10 +1,6 @@
-# Progress Memory
-
-Project-level progress index and reusable implementation notes.
+# Progress Log
 
 ## Entry Template
-
-Use this template for new entries in `.progress/entries/<YYYY>/`:
 
 ```markdown
 # YYYY-MM-DD-N
@@ -38,6 +34,7 @@ abc123d (or TBD)
 
 | Page ID | Date | Title | Path | Keywords |
 | --- | --- | --- | --- | --- |
-| 2026-03-03-1 | 2026-03-03 | Stabilized full deploy flow and improved onboarding UX | `.progress/entries/2026/2026-03-03-1.md` | deploy, mpremote, config-wizard, docs |
-| 2026-03-04-1 | 2026-03-04 | Added configurable device upload directory with scoped full wipe | `.progress/entries/2026/2026-03-04-1.md` | sync, device-upload-dir, full-mode, planner, mpremote |
-| 2026-03-06-1 | 2026-03-06 | 统一 source_dir 为远端根映射语义 | `.progress/entries/2026/2026-03-06-1.md` | source-dir, scanner, incremental, upload, docs |
+| 2026-03-09-1 | 2026-03-09 | Cache scanned ports for list command | `.progress/entries/2026/2026-03-09-1.md` | list, port-cache, runtime-db, scan-mode, windows |
+| 2026-03-09-2 | 2026-03-09 | Avoid duplicate probes in known-first fallback | `.progress/entries/2026/2026-03-09-2.md` | list, known-first, regression, timeout, duplicate-probe |
+| 2026-03-09-3 | 2026-03-09 | Prefer successful ports in known-first scans | `.progress/entries/2026/2026-03-09-3.md` | list, successful-cache, runtime-db, known-first, windows |
+| 2026-03-09-4 | 2026-03-09 | Reset scan records and keep only last successful snapshot | `.progress/entries/2026/2026-03-09-4.md` | list, reset-cache, successful-snapshot, runtime-db, cli |

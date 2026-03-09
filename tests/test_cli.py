@@ -9,6 +9,15 @@ from mpy_cli.executor import ExecutionReport
 from mpy_cli.gitdiff import ChangeEntry
 
 
+def _run_main(argv: list[str]) -> int:
+    """@brief 运行 main 并将 argparse 的退出转换为返回码。"""
+
+    try:
+        return main(argv)
+    except SystemExit as exc:
+        return int(exc.code)
+
+
 @dataclass
 class FakeScanner:
     """@brief 测试用端口扫描器。"""
@@ -33,6 +42,500 @@ def test_init_command_creates_config_and_ignore(tmp_path: Path, monkeypatch) -> 
     assert (tmp_path / ".mpy-cli.toml").exists()
     assert (tmp_path / ".mpyignore").exists()
     assert (tmp_path / ".mpy-cli").exists()
+
+
+def test_list_command_prints_all_detected_devices_without_config(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:  # noqa: ANN001
+    """@brief list 应可在无配置文件时输出全部探测到的设备。"""
+
+    monkeypatch.chdir(tmp_path)
+
+    @dataclass
+    class FakeDevice:
+        port: str
+        implementation: str
+        version: str
+        platform: str
+        machine: str
+
+    class FakeBackend:
+        """@brief list 测试后端。"""
+
+        def __init__(self, binary: str = "mpremote", logger=None) -> None:  # noqa: ANN001
+            self.binary = binary
+            self.logger = logger
+
+        def ensure_available(self) -> None:
+            return
+
+        def list_ports(self) -> list[str]:
+            return ["/dev/ttyACM0", "COM3"]
+
+        def list_devices(
+            self,
+            ports: list[str] | None = None,
+            workers: int = 8,
+            probe_timeout: float = 1.0,
+        ):  # noqa: ANN201
+            if not ports:
+                return []
+            assert ports == ["/dev/ttyACM0", "COM3"]
+            return [
+                FakeDevice(
+                    port="/dev/ttyACM0",
+                    implementation="MicroPython",
+                    version="1.24.1",
+                    platform="esp32",
+                    machine="ESP32 Generic",
+                ),
+                FakeDevice(
+                    port="COM3",
+                    implementation="MicroPython",
+                    version="1.23.0",
+                    platform="rp2",
+                    machine="Raspberry Pi Pico",
+                ),
+            ]
+
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+
+    code = _run_main(["list"])
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert "发现 2 个可用设备" in output
+    assert "/dev/ttyACM0" in output
+    assert "COM3" in output
+    assert "ESP32 Generic" in output
+    assert "Raspberry Pi Pico" in output
+
+
+def test_list_command_reports_no_detected_devices(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:  # noqa: ANN001
+    """@brief list 未探测到设备时应给出明确提示。"""
+
+    monkeypatch.chdir(tmp_path)
+
+    class FakeBackend:
+        """@brief list 空结果测试后端。"""
+
+        def __init__(self, binary: str = "mpremote", logger=None) -> None:  # noqa: ANN001
+            self.binary = binary
+            self.logger = logger
+
+        def ensure_available(self) -> None:
+            return
+
+        def list_ports(self) -> list[str]:
+            return []
+
+        def list_devices(
+            self,
+            ports: list[str] | None = None,
+            workers: int = 8,
+            probe_timeout: float = 1.0,
+        ):  # noqa: ANN201
+            assert ports == []
+            return []
+
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+
+    code = _run_main(["list"])
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert "未探测到可用的 MicroPython 设备" in output
+
+
+def test_list_command_passes_workers_and_probe_timeout_to_backend(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief list 应将并发和超时参数透传给 backend。"""
+
+    monkeypatch.chdir(tmp_path)
+    captured: dict[str, object] = {}
+
+    class FakeBackend:
+        """@brief list 参数透传测试后端。"""
+
+        def __init__(self, binary: str = "mpremote", logger=None) -> None:  # noqa: ANN001
+            self.binary = binary
+            self.logger = logger
+
+        def ensure_available(self) -> None:
+            return
+
+        def list_ports(self) -> list[str]:
+            return ["COM3"]
+
+        def list_devices(
+            self,
+            ports: list[str] | None = None,
+            workers: int = 8,
+            probe_timeout: float = 1.0,
+        ):  # noqa: ANN201
+            captured["ports"] = ports
+            captured["workers"] = workers
+            captured["probe_timeout"] = probe_timeout
+            return []
+
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+
+    code = _run_main(["list", "--workers", "4", "--probe-timeout", "1.5"])
+
+    assert code == 0
+    assert captured == {"ports": ["COM3"], "workers": 4, "probe_timeout": 1.5}
+
+
+def test_list_command_uses_default_probe_timeout_of_one_second(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief list 默认应使用 1.0 秒探测超时。"""
+
+    monkeypatch.chdir(tmp_path)
+    captured: dict[str, object] = {}
+
+    class FakeBackend:
+        """@brief list 默认超时测试后端。"""
+
+        def __init__(self, binary: str = "mpremote", logger=None) -> None:  # noqa: ANN001
+            self.binary = binary
+            self.logger = logger
+
+        def ensure_available(self) -> None:
+            return
+
+        def list_ports(self) -> list[str]:
+            return ["COM3"]
+
+        def list_devices(
+            self,
+            ports: list[str] | None = None,
+            workers: int = 8,
+            probe_timeout: float = 1.0,
+        ):  # noqa: ANN201
+            captured["workers"] = workers
+            captured["probe_timeout"] = probe_timeout
+            return []
+
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+
+    code = _run_main(["list"])
+
+    assert code == 0
+    assert captured == {"workers": 8, "probe_timeout": 1.0}
+
+
+def test_list_command_known_first_uses_cached_available_ports_then_falls_back(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief known-first 应先探测缓存且当前可用端口，失败后回退全量探测。"""
+
+    monkeypatch.chdir(tmp_path)
+    probed_ports: list[list[str]] = []
+    saved_ports: dict[str, object] = {}
+
+    class FakeBackend:
+        """@brief list 缓存优先测试后端。"""
+
+        def __init__(self, binary: str = "mpremote", logger=None) -> None:  # noqa: ANN001
+            self.binary = binary
+            self.logger = logger
+
+        def ensure_available(self) -> None:
+            return
+
+        def list_ports(self) -> list[str]:
+            return ["COM3", "COM7"]
+
+        def list_devices(
+            self,
+            ports: list[str] | None = None,
+            workers: int = 8,
+            probe_timeout: float = 1.0,
+        ):  # noqa: ANN201
+            probed_ports.append(list(ports or []))
+            if ports == ["COM3"]:
+                return []
+            return [
+                type(
+                    "FakeDevice",
+                    (),
+                    {
+                        "port": "COM7",
+                        "implementation": "MicroPython",
+                        "version": "1.20.0",
+                        "platform": "rp2",
+                        "machine": "Pico",
+                    },
+                )()
+            ]
+
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+    monkeypatch.setattr(
+        "mpy_cli.cli.list_successful_scanned_ports",
+        lambda _db_path: ["COM3", "COM9"],
+    )
+    monkeypatch.setattr(
+        "mpy_cli.cli.upsert_scanned_ports",
+        lambda db_path, ports: saved_ports.update({"db_path": db_path, "ports": ports}),
+    )
+    monkeypatch.setattr(
+        "mpy_cli.cli.mark_scanned_port_successes",
+        lambda db_path, ports: saved_ports.update(
+            {"success_db_path": db_path, "success_ports": ports}
+        ),
+    )
+
+    code = _run_main(["list"])
+
+    assert code == 0
+    assert probed_ports == [["COM3"], ["COM7"]]
+    assert saved_ports["ports"] == ["COM3", "COM7"]
+    assert saved_ports["success_ports"] == ["COM7"]
+
+
+def test_list_command_known_first_without_available_known_ports_scans_current_once(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief known-first 在无可用缓存端口时不应重复探测当前端口。"""
+
+    monkeypatch.chdir(tmp_path)
+    probed_ports: list[list[str]] = []
+
+    class FakeBackend:
+        """@brief list 空缓存命中测试后端。"""
+
+        def __init__(self, binary: str = "mpremote", logger=None) -> None:  # noqa: ANN001
+            self.binary = binary
+            self.logger = logger
+
+        def ensure_available(self) -> None:
+            return
+
+        def list_ports(self) -> list[str]:
+            return ["COM3", "COM7"]
+
+        def list_devices(
+            self,
+            ports: list[str] | None = None,
+            workers: int = 8,
+            probe_timeout: float = 1.0,
+        ):  # noqa: ANN201
+            probed_ports.append(list(ports or []))
+            return []
+
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+    monkeypatch.setattr(
+        "mpy_cli.cli.list_successful_scanned_ports",
+        lambda _db_path: ["COM9"],
+    )
+    monkeypatch.setattr(
+        "mpy_cli.cli.upsert_scanned_ports", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        "mpy_cli.cli.mark_scanned_port_successes", lambda *_args, **_kwargs: None
+    )
+
+    code = _run_main(["list"])
+
+    assert code == 0
+    assert probed_ports == [["COM3", "COM7"]]
+
+
+def test_list_command_scan_mode_full_only_probes_all_current_ports(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief full-only 模式应直接探测当前所有可用端口。"""
+
+    monkeypatch.chdir(tmp_path)
+    captured: dict[str, object] = {}
+
+    class FakeBackend:
+        """@brief list scan-mode 测试后端。"""
+
+        def __init__(self, binary: str = "mpremote", logger=None) -> None:  # noqa: ANN001
+            self.binary = binary
+            self.logger = logger
+
+        def ensure_available(self) -> None:
+            return
+
+        def list_ports(self) -> list[str]:
+            return ["COM3", "COM7"]
+
+        def list_devices(
+            self,
+            ports: list[str] | None = None,
+            workers: int = 8,
+            probe_timeout: float = 1.0,
+        ):  # noqa: ANN201
+            captured["ports"] = ports
+            captured["workers"] = workers
+            captured["probe_timeout"] = probe_timeout
+            return []
+
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+    monkeypatch.setattr(
+        "mpy_cli.cli.list_successful_scanned_ports",
+        lambda _db_path: ["COM9"],
+    )
+    monkeypatch.setattr(
+        "mpy_cli.cli.upsert_scanned_ports", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        "mpy_cli.cli.mark_scanned_port_successes", lambda *_args, **_kwargs: None
+    )
+
+    code = _run_main(
+        [
+            "list",
+            "--scan-mode",
+            "full-only",
+            "--workers",
+            "4",
+            "--probe-timeout",
+            "1.5",
+        ]
+    )
+
+    assert code == 0
+    assert captured == {
+        "ports": ["COM3", "COM7"],
+        "workers": 4,
+        "probe_timeout": 1.5,
+    }
+
+
+def test_list_command_reset_clears_cache_before_scanning(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief reset 应先清空缓存，再执行新一轮扫描。"""
+
+    monkeypatch.chdir(tmp_path)
+    calls: list[tuple[str, object]] = []
+
+    class FakeBackend:
+        """@brief list reset 测试后端。"""
+
+        def __init__(self, binary: str = "mpremote", logger=None) -> None:  # noqa: ANN001
+            self.binary = binary
+            self.logger = logger
+
+        def ensure_available(self) -> None:
+            return
+
+        def list_ports(self) -> list[str]:
+            calls.append(("list_ports", None))
+            return ["COM3"]
+
+        def list_devices(
+            self,
+            ports: list[str] | None = None,
+            workers: int = 8,
+            probe_timeout: float = 1.0,
+        ):  # noqa: ANN201
+            calls.append(("list_devices", list(ports or [])))
+            return []
+
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+    monkeypatch.setattr(
+        "mpy_cli.cli.clear_scan_records",
+        lambda _db_path: calls.append(("clear", None)),
+    )
+    monkeypatch.setattr(
+        "mpy_cli.cli.list_successful_scanned_ports",
+        lambda _db_path: calls.append(("list_successful", None)) or [],
+    )
+    monkeypatch.setattr(
+        "mpy_cli.cli.upsert_scanned_ports",
+        lambda _db_path, ports: calls.append(("upsert", list(ports))),
+    )
+    monkeypatch.setattr(
+        "mpy_cli.cli.mark_scanned_port_successes",
+        lambda _db_path, ports: calls.append(("mark_success", list(ports))),
+    )
+
+    code = _run_main(["list", "--reset"])
+
+    assert code == 0
+    assert calls == [
+        ("clear", None),
+        ("list_successful", None),
+        ("list_ports", None),
+        ("upsert", ["COM3"]),
+        ("list_devices", ["COM3"]),
+        ("mark_success", []),
+    ]
+
+
+def test_list_command_rejects_legacy_reset_scan_records_flag() -> None:
+    """@brief list 应仅保留精简后的 --reset 参数。"""
+
+    code = _run_main(["list", "--reset-scan-records"])
+
+    assert code == 2
+
+
+def test_list_command_known_first_ignores_history_without_success(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief known-first 第一阶段只应使用成功缓存，不应使用全部扫描历史。"""
+
+    monkeypatch.chdir(tmp_path)
+    probed_ports: list[list[str]] = []
+
+    class FakeBackend:
+        """@brief list 成功缓存优先测试后端。"""
+
+        def __init__(self, binary: str = "mpremote", logger=None) -> None:  # noqa: ANN001
+            self.binary = binary
+            self.logger = logger
+
+        def ensure_available(self) -> None:
+            return
+
+        def list_ports(self) -> list[str]:
+            return ["COM3", "COM7", "COM8"]
+
+        def list_devices(
+            self,
+            ports: list[str] | None = None,
+            workers: int = 8,
+            probe_timeout: float = 1.0,
+        ):  # noqa: ANN201
+            probed_ports.append(list(ports or []))
+            return []
+
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+    monkeypatch.setattr(
+        "mpy_cli.cli.list_successful_scanned_ports",
+        lambda _db_path: ["COM7"],
+    )
+    monkeypatch.setattr(
+        "mpy_cli.cli.upsert_scanned_ports", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        "mpy_cli.cli.mark_scanned_port_successes", lambda *_args, **_kwargs: None
+    )
+
+    code = _run_main(["list"])
+
+    assert code == 0
+    assert probed_ports == [["COM7"], ["COM3", "COM8"]]
 
 
 def test_resolve_port_uses_scanned_choice_in_interactive(monkeypatch) -> None:  # noqa: ANN001

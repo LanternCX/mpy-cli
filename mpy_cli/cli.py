@@ -24,7 +24,13 @@ from mpy_cli.gitdiff import GitDiffError, collect_git_changes
 from mpy_cli.ignore import IgnoreMatcher, init_ignore
 from mpy_cli.logging import setup_logging
 from mpy_cli.planner import DeployPlan, PlanOperation, build_plan
-from mpy_cli.runtime import ensure_runtime_layout
+from mpy_cli.runtime import (
+    clear_scan_records,
+    ensure_runtime_layout,
+    list_successful_scanned_ports,
+    mark_scanned_port_successes,
+    upsert_scanned_ports,
+)
 from mpy_cli.scanner import list_local_files
 
 
@@ -49,6 +55,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_init(force=args.force, interactive=not args.no_interactive)
     if args.command == "config":
         return _cmd_config()
+    if args.command == "list":
+        return _cmd_list(args)
     if args.command in {"plan", "deploy"}:
         return _cmd_plan_or_deploy(args)
     if args.command == "upload":
@@ -81,6 +89,31 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers.add_parser("config", help="通过交互向导更新配置")
+
+    list_parser = subparsers.add_parser("list", help="探测可用的 MicroPython 设备")
+    list_parser.add_argument(
+        "--workers",
+        type=int,
+        default=8,
+        help="并发探测线程数，默认 8",
+    )
+    list_parser.add_argument(
+        "--probe-timeout",
+        type=float,
+        default=1.0,
+        help="单端口探测超时秒数，默认 1.0",
+    )
+    list_parser.add_argument(
+        "--scan-mode",
+        choices=["known-first", "known-only", "full-only"],
+        default="known-first",
+        help="端口探测策略，默认 known-first",
+    )
+    list_parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="清空之前的扫描记录后再执行本次 list",
+    )
 
     for name in ("plan", "deploy"):
         cmd = subparsers.add_parser(name, help=f"{name} 模式")
@@ -171,6 +204,139 @@ def _cmd_config() -> int:
 
     print("配置已更新，可直接执行 plan/deploy")
     return 0
+
+
+def _cmd_list(args: argparse.Namespace) -> int:
+    """@brief 执行 list 子命令。"""
+
+    cfg = default_config()
+    try:
+        cfg = load_config(Path(".mpy-cli.toml"))
+    except ConfigError:
+        pass
+
+    runtime_paths = ensure_runtime_layout(Path(cfg.runtime_dir))
+    logger = setup_logging(runtime_paths.root)
+
+    backend = MpremoteBackend(binary=cfg.mpremote_binary, logger=logger)
+    try:
+        backend.ensure_available()
+    except CommandExecutionError as exc:
+        print(str(exc))
+        return 1
+
+    try:
+        if args.reset:
+            clear_scan_records(runtime_paths.db_path)
+        known_ports = list_successful_scanned_ports(runtime_paths.db_path)
+        current_ports = backend.list_ports()
+        upsert_scanned_ports(runtime_paths.db_path, current_ports)
+
+        known_available_ports = _filter_available_known_ports(
+            known_ports=known_ports,
+            current_ports=current_ports,
+        )
+        logger.info(
+            "list 扫描模式: %s | known=%s current=%s available-known=%s",
+            args.scan_mode,
+            len(known_ports),
+            len(current_ports),
+            len(known_available_ports),
+        )
+
+        devices = _scan_devices_for_list(
+            backend=backend,
+            scan_mode=args.scan_mode,
+            known_available_ports=known_available_ports,
+            current_ports=current_ports,
+            workers=args.workers,
+            probe_timeout=args.probe_timeout,
+            logger=logger,
+        )
+        mark_scanned_port_successes(
+            runtime_paths.db_path,
+            [device.port for device in devices],
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"设备探测失败: {exc}")
+        return 2
+
+    if not devices:
+        print("未探测到可用的 MicroPython 设备")
+        return 0
+
+    print(f"发现 {len(devices)} 个可用设备")
+    for device in devices:
+        print(
+            "- "
+            f"{device.port} | "
+            f"{device.implementation} {device.version} | "
+            f"{device.platform} | "
+            f"{device.machine}"
+        )
+    return 0
+
+
+def _scan_devices_for_list(
+    backend: MpremoteBackend,
+    scan_mode: str,
+    known_available_ports: list[str],
+    current_ports: list[str],
+    workers: int,
+    probe_timeout: float,
+    logger,
+) -> list[object]:  # noqa: ANN001
+    """@brief 根据扫描模式执行设备探测。"""
+
+    if scan_mode == "known-only":
+        return backend.list_devices(
+            ports=known_available_ports,
+            workers=workers,
+            probe_timeout=probe_timeout,
+        )
+
+    if scan_mode == "full-only":
+        return backend.list_devices(
+            ports=current_ports,
+            workers=workers,
+            probe_timeout=probe_timeout,
+        )
+
+    remaining_ports = [
+        port for port in current_ports if port not in set(known_available_ports)
+    ]
+
+    if not known_available_ports:
+        return backend.list_devices(
+            ports=current_ports,
+            workers=workers,
+            probe_timeout=probe_timeout,
+        )
+
+    devices = backend.list_devices(
+        ports=known_available_ports,
+        workers=workers,
+        probe_timeout=probe_timeout,
+    )
+    if devices or not remaining_ports:
+        return devices
+
+    logger.info("known-first 未发现可用设备，回退到未探测的当前可用端口")
+    return backend.list_devices(
+        ports=remaining_ports,
+        workers=workers,
+        probe_timeout=probe_timeout,
+    )
+
+
+def _filter_available_known_ports(
+    known_ports: list[str],
+    current_ports: list[str],
+) -> list[str]:
+    """@brief 过滤出历史缓存中当前仍可用的端口。"""
+
+    current_port_set = set(current_ports)
+    return [port for port in known_ports if port in current_port_set]
 
 
 def _cmd_plan_or_deploy(args: argparse.Namespace) -> int:

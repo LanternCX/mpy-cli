@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 import shutil
 import subprocess
+from time import perf_counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Protocol
 
 
 class CommandExecutionError(RuntimeError):
     """@brief 外部命令执行失败异常。"""
+
+
+class CommandTimeoutError(CommandExecutionError):
+    """@brief 外部命令执行超时异常。"""
 
 
 @dataclass(frozen=True)
@@ -31,6 +37,32 @@ class RemoteDirEntry:
     is_dir: bool
 
 
+@dataclass(frozen=True)
+class DetectedDevice:
+    """@brief 探测到的设备信息。"""
+
+    port: str
+    implementation: str
+    version: str
+    platform: str
+    machine: str
+
+
+class BackendLogger(Protocol):
+    """@brief 后端日志接口。"""
+
+    def info(self, message: str, *args) -> None:  # noqa: ANN401
+        """@brief 输出 info 日志。"""
+
+    def warning(self, message: str, *args) -> None:  # noqa: ANN401
+        """@brief 输出 warning 日志。"""
+
+
+DEFAULT_LIST_WORKERS = 8
+DEFAULT_PROBE_TIMEOUT = 1.0
+MAX_LIST_WORKERS = 32
+
+
 class MpremoteBackend:
     """@brief `mpremote` 后端适配器。"""
 
@@ -39,17 +71,20 @@ class MpremoteBackend:
         binary: str = "mpremote",
         runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
         resolver: Callable[[str], str | None] = shutil.which,
+        logger: BackendLogger | None = None,
     ) -> None:
         """@brief 初始化后端。
 
         @param binary mpremote 可执行文件名。
         @param runner 子进程执行器。
         @param resolver 可执行文件探测器。
+        @param logger 可选日志器。
         """
 
         self.binary = binary
         self._runner = runner
         self._resolver = resolver
+        self.logger = logger
 
     def ensure_available(self) -> None:
         """@brief 确保 mpremote 可执行文件存在。"""
@@ -152,6 +187,66 @@ class MpremoteBackend:
         result = self._run([self.binary, "connect", "list"])
         return parse_port_list_output(result.stdout)
 
+    def list_devices(
+        self,
+        ports: list[str] | None = None,
+        workers: int = DEFAULT_LIST_WORKERS,
+        probe_timeout: float = DEFAULT_PROBE_TIMEOUT,
+    ) -> list[DetectedDevice]:
+        """@brief 探测当前可访问的 MicroPython 设备列表。"""
+
+        candidate_ports = _normalize_probe_ports(
+            self.list_ports() if ports is None else ports
+        )
+        if not candidate_ports:
+            self._log_info("未扫描到可探测端口")
+            return []
+
+        normalized_workers = _normalize_list_workers(
+            workers=workers,
+            port_count=len(candidate_ports),
+        )
+        normalized_timeout = _normalize_probe_timeout(probe_timeout)
+        started_at = perf_counter()
+        self._log_info(
+            "开始探测设备端口: count=%s workers=%s timeout=%.1fs",
+            len(candidate_ports),
+            normalized_workers,
+            normalized_timeout,
+        )
+
+        results: dict[int, DetectedDevice] = {}
+        futures: dict[Future[tuple[DetectedDevice, float]], tuple[int, str]] = {}
+        with ThreadPoolExecutor(max_workers=normalized_workers) as executor:
+            for index, port in enumerate(candidate_ports):
+                self._log_info("开始探测端口: %s", port)
+                future = executor.submit(
+                    self._probe_device_timed, port, normalized_timeout
+                )
+                futures[future] = (index, port)
+
+            for future in as_completed(futures):
+                index, port = futures[future]
+                try:
+                    device, elapsed = future.result()
+                except CommandTimeoutError as exc:
+                    self._log_warning("探测超时: %s | %s", port, str(exc))
+                except (CommandExecutionError, ValueError) as exc:
+                    self._log_warning("探测失败: %s | %s", port, str(exc))
+                else:
+                    results[index] = device
+                    self._log_info("探测完成: %s | %.3fs", port, elapsed)
+
+        devices = [results[index] for index in sorted(results)]
+        self._log_info(
+            "设备探测完成: total=%s success=%s failure=%s elapsed=%.3fs",
+            len(candidate_ports),
+            len(devices),
+            len(candidate_ports) - len(devices),
+            perf_counter() - started_at,
+        )
+        return devices
+
     def upload_file(
         self, port: str, local_path: str, remote_path: str
     ) -> CommandResult:
@@ -195,10 +290,42 @@ class MpremoteBackend:
         result = self._run(cmd)
         return parse_remote_dir_list_output(result.stdout)
 
-    def _run(self, command: list[str]) -> CommandResult:
+    def _probe_device(self, port: str, timeout: float | None = None) -> DetectedDevice:
+        """@brief 探测单个端口对应的设备信息。"""
+
+        cmd = self._build_probe_device_command(port)
+        result = self._run(cmd, timeout=timeout)
+        return parse_device_probe_output(port=port, output=result.stdout)
+
+    def _probe_device_timed(
+        self,
+        port: str,
+        timeout: float,
+    ) -> tuple[DetectedDevice, float]:
+        """@brief 以耗时统计方式探测单个端口。"""
+
+        started_at = perf_counter()
+        device = self._probe_device(port=port, timeout=timeout)
+        return device, perf_counter() - started_at
+
+    def _build_probe_device_command(self, port: str) -> list[str]:
+        """@brief 构建设备探测命令。"""
+
+        script = _build_probe_device_script()
+        return [self.binary, "connect", port, "resume", "exec", script]
+
+    def _run(self, command: list[str], timeout: float | None = None) -> CommandResult:
         """@brief 执行外部命令。"""
 
-        completed = self._runner(command, capture_output=True, text=True, check=False)
+        kwargs = {"capture_output": True, "text": True, "check": False}
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+
+        try:
+            completed = self._runner(command, **kwargs)
+        except subprocess.TimeoutExpired as exc:
+            raise CommandTimeoutError(f"命令执行超时: {exc.timeout:.1f}s") from exc
+
         result = CommandResult(
             command=command,
             stdout=completed.stdout,
@@ -212,6 +339,20 @@ class MpremoteBackend:
             )
             raise CommandExecutionError(message)
         return result
+
+    def _log_info(self, message: str, *args) -> None:  # noqa: ANN401
+        """@brief 输出 info 日志。"""
+
+        if self.logger is None:
+            return
+        self.logger.info(message, *args)
+
+    def _log_warning(self, message: str, *args) -> None:  # noqa: ANN401
+        """@brief 输出 warning 日志。"""
+
+        if self.logger is None:
+            return
+        self.logger.warning(message, *args)
 
     def _ensure_remote_parent_dirs(self, port: str, remote_path: str) -> None:
         """@brief 确保远端父目录存在。"""
@@ -269,6 +410,65 @@ def parse_port_list_output(output: str) -> list[str]:
         if token not in ports:
             ports.append(token)
     return ports
+
+
+def parse_device_probe_output(port: str, output: str) -> DetectedDevice:
+    """@brief 解析设备探测输出。"""
+
+    values: dict[str, str] = {}
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line or "\t" not in line:
+            continue
+        key, value = line.split("\t", 1)
+        cleaned_key = key.strip()
+        cleaned_value = value.strip()
+        if cleaned_key:
+            values[cleaned_key] = cleaned_value
+
+    implementation = values.get("I", "")
+    if not implementation:
+        raise ValueError(f"missing implementation for port {port}")
+
+    platform = values.get("P", "")
+    machine = values.get("M", "") or platform
+    return DetectedDevice(
+        port=port,
+        implementation=implementation,
+        version=values.get("V", ""),
+        platform=platform,
+        machine=machine,
+    )
+
+
+def _normalize_list_workers(workers: int, port_count: int) -> int:
+    """@brief 归一化 list 探测线程数。"""
+
+    if port_count <= 0:
+        return 1
+    return max(1, min(workers, port_count, MAX_LIST_WORKERS))
+
+
+def _normalize_probe_timeout(probe_timeout: float) -> float:
+    """@brief 归一化探测超时秒数。"""
+
+    if probe_timeout <= 0:
+        raise ValueError("probe timeout must be positive")
+    return probe_timeout
+
+
+def _normalize_probe_ports(ports: list[str]) -> list[str]:
+    """@brief 去重并归一化待探测端口列表。"""
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_port in ports:
+        port = raw_port.strip()
+        if not port or port in seen:
+            continue
+        seen.add(port)
+        normalized.append(port)
+    return normalized
 
 
 def _looks_like_port(token: str) -> bool:
@@ -353,6 +553,28 @@ def _build_remote_run_script(remote_path: str) -> str:
         "    raise OSError('target file not found: ' + target_raw)\n"
         "globals_dict = {'__name__': '__main__', '__file__': resolved}\n"
         "exec(compile(source, resolved, 'exec'), globals_dict, globals_dict)\n"
+    )
+
+
+def _build_probe_device_script() -> str:
+    """@brief 生成设备探测脚本片段。"""
+
+    return (
+        "import os\n"
+        "import sys\n"
+        "implementation = getattr(getattr(sys, 'implementation', None), 'name', '')\n"
+        "version_info = getattr(getattr(sys, 'implementation', None), 'version', ())\n"
+        "version = '.'.join(str(part) for part in version_info[:3])\n"
+        "platform = getattr(sys, 'platform', '')\n"
+        "machine = platform\n"
+        "try:\n"
+        "    machine = os.uname().machine\n"
+        "except Exception:\n"
+        "    machine = platform\n"
+        "print('I\\t' + str(implementation))\n"
+        "print('V\\t' + str(version))\n"
+        "print('P\\t' + str(platform))\n"
+        "print('M\\t' + str(machine))\n"
     )
 
 
