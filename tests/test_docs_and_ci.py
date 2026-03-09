@@ -45,6 +45,7 @@ def test_readme_lists_all_cli_parameters() -> None:
     for token in [
         "mpy-cli init",
         "mpy-cli config",
+        "mpy-cli list",
         "mpy-cli plan",
         "mpy-cli deploy",
         "mpy-cli upload",
@@ -58,6 +59,10 @@ def test_readme_lists_all_cli_parameters() -> None:
         "--local",
         "--remote",
         "--path",
+        "--workers",
+        "--probe-timeout",
+        "--scan-mode",
+        "--reset",
         "--yes",
     ]:
         assert token in content
@@ -108,4 +113,26 @@ def test_readme_lists_tree_command_parameters() -> None:
 
     content = Path("README.md").read_text(encoding="utf-8")
     for token in ["mpy-cli tree", "--path"]:
+        assert token in content
+
+
+def test_readme_lists_list_command_usage() -> None:
+    """@brief README 应包含 list 命令及用途说明。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+    for token in ["mpy-cli list", "探测", "MicroPython 设备"]:
+        assert token in content
+
+
+def test_readme_lists_list_command_performance_parameters() -> None:
+    """@brief README 应包含 list 命令的性能参数说明。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+    for token in [
+        "--workers",
+        "--probe-timeout",
+        "--scan-mode",
+        "known-first",
+        "--reset",
+    ]:
         assert token in content

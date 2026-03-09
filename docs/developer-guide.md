@@ -21,8 +21,10 @@
 ## Git 工作流
 
 - 使用 Git Flow：`main`（稳定）+ `dev`（开发）。
+- 默认直接在当前开发分支工作；未获维护者明确要求时，不创建额外 worktree 或功能分支。
 - 提交信息使用 Angular Commit 规范。
 - 每次 commit 前必须先与维护者确认。
+- 未获维护者确认时，不允许为了保存进度而自动 commit。
 - 如果你使用 Agent 开发每次 commit 必须携带 Agent 信息，例如：
 
 ```text
@@ -36,6 +38,7 @@ Co-authored-by: opencode-agent[bot] <opencode-agent[bot]@users.noreply.github.co
 需要遵守 TDD 工作流
 
 - 项目技能目录：`.opencode/skills`
+- 默认遵循项目技能，不使用 superpowers 默认 worktree 工作流
 - 当前技能：
   - `git-workflow`
   - `code-standard`
