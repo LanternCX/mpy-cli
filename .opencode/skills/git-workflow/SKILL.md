@@ -11,6 +11,8 @@ description: Use when performing any git branch, commit, merge, tag, or release 
 
 核心约束：默认直接在当前开发分支工作，不主动创建 worktree 或新分支；每次 `git commit` 前必须先得到用户确认，且每次提交都必须追加固定 co-author 尾部。
 
+若命中项目内 `.opencode/skills/using-git-worktrees/SKILL.md`，应将其视为本技能的覆盖入口：它不会创建 worktree，而是把 Git 行为重定向回本技能。
+
 ## When to Use
 
 - 任何分支创建、切换、合并、提交、打 Tag、发版相关操作。
@@ -30,6 +32,7 @@ description: Use when performing any git branch, commit, merge, tag, or release 
 - [ ] 每次 commit 都追加以下尾部：
   `Co-authored-by: opencode-agent[bot] <opencode-agent[bot]@users.noreply.github.com>`
 - [ ] 禁止使用 superpowers 内置 git-workflow，必须使用本项目技能规则。
+- [ ] 若命中项目内 `using-git-worktrees`，必须将其视为重定向入口，并回到本技能执行 Git 规则。
 
 ## Quick Reference
 
@@ -41,6 +44,7 @@ description: Use when performing any git branch, commit, merge, tag, or release 
 - Angular Commit 常用类型：`feat`、`fix`、`docs`、`refactor`、`test`、`chore`
 - 默认开发分支：`dev`
 - 默认工作方式：直接在当前开发分支修改，不使用 superpowers worktree 工作流
+- `using-git-worktrees` 在本项目中是覆盖入口，不是 worktree 创建说明
 
 ## Common Rationalizations
 
@@ -51,6 +55,7 @@ description: Use when performing any git branch, commit, merge, tag, or release 
 | "先用一句 update 方便" | 非 Angular Commit 会破坏提交历史可读性与自动化流程。 |
 | "直接在 main 上改更快" | 与 Git Flow 冲突，会增加主干风险。 |
 | "先建个 .worktrees 更安全" | 本项目默认不使用 superpowers worktree 工作流，除非用户明确要求隔离工作区。 |
+| "既然命中了 using-git-worktrees，就按内置 worktree 流程走" | 本项目同名技能只负责覆盖并重定向，真正的 Git 规则仍以本技能为准。 |
 
 ## Red Flags
 
@@ -59,11 +64,13 @@ description: Use when performing any git branch, commit, merge, tag, or release 
 - 出现非 Angular Commit 信息时必须重写。
 - 准备提交但未附 co-author 尾部时必须中止。
 - 准备调用内置 git-workflow 时必须改用本技能。
+- 准备把项目内 `using-git-worktrees` 当成创建 worktree 的指令时必须立即停止。
 
 ## Common Mistakes
 
 - 忘记切换到 `dev` 就开始开发。
 - 在未获用户要求时擅自创建 worktree 或额外分支。
+- 命中项目内 `using-git-worktrees` 后，仍误走 superpowers 内置 worktree 流程。
 - 提交前只看代码不出提交确认单。
 - 提交信息写成自然语言句子，缺少类型前缀。
 - 只在首个提交加 co-author，后续提交遗漏。
