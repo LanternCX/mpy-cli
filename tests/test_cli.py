@@ -1167,8 +1167,12 @@ def test_plan_incremental_collects_changes_from_source_dir(
 
     captured_repo_path: dict[str, Path] = {}
 
-    def fake_collect_git_changes(repo_path: Path) -> list[ChangeEntry]:
+    def fake_collect_git_changes(
+        repo_path: Path,
+        base_ref: str = "HEAD",
+    ) -> list[ChangeEntry]:
         captured_repo_path["value"] = repo_path
+        captured_repo_path["base_ref"] = base_ref
         return []
 
     monkeypatch.setattr("mpy_cli.cli.load_config", lambda *_args, **_kwargs: config)
@@ -1178,6 +1182,59 @@ def test_plan_incremental_collects_changes_from_source_dir(
 
     assert code == 0
     assert captured_repo_path["value"] == source_root.resolve()
+    assert captured_repo_path["base_ref"] == "HEAD"
+
+
+def test_plan_incremental_passes_base_ref_to_gitdiff(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief 增量 plan 传入 --base 时应透传到 gitdiff。"""
+
+    monkeypatch.chdir(tmp_path)
+    main(["init", "--no-interactive"])
+
+    source_root = tmp_path / "app_src"
+    source_root.mkdir(parents=True, exist_ok=True)
+
+    config = AppConfig(
+        serial_port="COM3",
+        ignore_file=".mpyignore",
+        runtime_dir=".mpy-cli",
+        source_dir="app_src",
+        mpremote_binary="mpremote",
+        device_upload_dir="",
+        sync=SyncConfig(mode="incremental"),
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_collect_git_changes(
+        repo_path: Path, base_ref: str = "HEAD"
+    ) -> list[ChangeEntry]:
+        captured["repo_path"] = repo_path
+        captured["base_ref"] = base_ref
+        return []
+
+    monkeypatch.setattr("mpy_cli.cli.load_config", lambda *_args, **_kwargs: config)
+    monkeypatch.setattr("mpy_cli.cli.collect_git_changes", fake_collect_git_changes)
+
+    code = main(
+        [
+            "plan",
+            "--no-interactive",
+            "--mode",
+            "incremental",
+            "--base",
+            "abc123",
+            "--port",
+            "COM3",
+        ]
+    )
+
+    assert code == 0
+    assert captured["repo_path"] == source_root.resolve()
+    assert captured["base_ref"] == "abc123"
 
 
 def test_deploy_incremental_resolves_upload_local_path_from_source_dir(
@@ -1226,7 +1283,11 @@ def test_deploy_incremental_resolves_upload_local_path_from_source_dir(
             captured["port"] = port
             return ExecutionReport(success_count=1, failure_count=0, failures=[])
 
-    def fake_collect_git_changes(_repo_path: Path) -> list[ChangeEntry]:
+    def fake_collect_git_changes(
+        _repo_path: Path,
+        base_ref: str = "HEAD",
+    ) -> list[ChangeEntry]:
+        captured["base_ref"] = base_ref
         return [ChangeEntry(status="M", src_path=None, dst_path="main.py")]
 
     monkeypatch.setattr("mpy_cli.cli.load_config", lambda *_args, **_kwargs: config)
@@ -1252,6 +1313,124 @@ def test_deploy_incremental_resolves_upload_local_path_from_source_dir(
     assert operation.local_path == (source_root / "main.py").resolve().as_posix()
     assert operation.remote_path == "main.py"
     assert captured["port"] == "COM3"
+    assert captured["base_ref"] == "HEAD"
+
+
+def test_deploy_incremental_passes_base_ref_to_gitdiff(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    """@brief 增量 deploy 传入 --base 时应透传到 gitdiff。"""
+
+    monkeypatch.chdir(tmp_path)
+    main(["init", "--no-interactive"])
+
+    source_root = tmp_path / "app_src"
+    source_root.mkdir(parents=True, exist_ok=True)
+    (source_root / "main.py").write_text("print('ok')\n", encoding="utf-8")
+
+    config = AppConfig(
+        serial_port="COM3",
+        ignore_file=".mpyignore",
+        runtime_dir=".mpy-cli",
+        source_dir="app_src",
+        mpremote_binary="mpremote",
+        device_upload_dir="",
+        sync=SyncConfig(mode="incremental"),
+    )
+
+    captured: dict[str, object] = {}
+
+    class FakeBackend:
+        """@brief deploy 基准参数透传测试后端。"""
+
+        def __init__(self, binary: str = "mpremote") -> None:
+            self.binary = binary
+
+        def ensure_available(self) -> None:
+            return
+
+    class FakeExecutor:
+        """@brief deploy 基准参数透传测试执行器。"""
+
+        def __init__(self, backend: object, logger: object | None = None) -> None:
+            self.backend = backend
+            self.logger = logger
+
+        def execute(self, plan, port: str) -> ExecutionReport:  # noqa: ANN001
+            captured["plan"] = plan
+            captured["port"] = port
+            return ExecutionReport(success_count=1, failure_count=0, failures=[])
+
+    def fake_collect_git_changes(
+        repo_path: Path, base_ref: str = "HEAD"
+    ) -> list[ChangeEntry]:
+        captured["repo_path"] = repo_path
+        captured["base_ref"] = base_ref
+        return [ChangeEntry(status="M", src_path=None, dst_path="main.py")]
+
+    monkeypatch.setattr("mpy_cli.cli.load_config", lambda *_args, **_kwargs: config)
+    monkeypatch.setattr("mpy_cli.cli.collect_git_changes", fake_collect_git_changes)
+    monkeypatch.setattr("mpy_cli.cli.MpremoteBackend", FakeBackend)
+    monkeypatch.setattr("mpy_cli.cli.DeployExecutor", FakeExecutor)
+
+    code = main(
+        [
+            "deploy",
+            "--no-interactive",
+            "--yes",
+            "--mode",
+            "incremental",
+            "--base",
+            "abc123",
+            "--port",
+            "COM3",
+        ]
+    )
+
+    assert code == 0
+    assert captured["repo_path"] == source_root.resolve()
+    assert captured["base_ref"] == "abc123"
+    assert captured["port"] == "COM3"
+
+
+def test_plan_full_rejects_base_ref(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:  # noqa: ANN001
+    """@brief full 模式传入 --base 时应直接失败。"""
+
+    monkeypatch.chdir(tmp_path)
+    main(["init", "--no-interactive"])
+
+    config = AppConfig(
+        serial_port="COM3",
+        ignore_file=".mpyignore",
+        runtime_dir=".mpy-cli",
+        source_dir=".",
+        mpremote_binary="mpremote",
+        device_upload_dir="",
+        sync=SyncConfig(mode="incremental"),
+    )
+
+    monkeypatch.setattr("mpy_cli.cli.load_config", lambda *_args, **_kwargs: config)
+
+    code = _run_main(
+        [
+            "plan",
+            "--no-interactive",
+            "--mode",
+            "full",
+            "--base",
+            "abc123",
+            "--port",
+            "COM3",
+        ]
+    )
+
+    assert code == 1
+    assert "--base 仅支持 incremental 模式" in capsys.readouterr().out
 
 
 def test_tree_executes_remote_list_with_device_upload_prefix(

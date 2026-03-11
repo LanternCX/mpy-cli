@@ -35,11 +35,11 @@ def parse_name_status_line(line: str) -> ChangeEntry:
     return ChangeEntry(status=status, src_path=None, dst_path=parts[1])
 
 
-def collect_git_changes(repo_path: Path) -> list[ChangeEntry]:
-    """@brief 收集当前工作区变更和未跟踪文件。"""
+def collect_git_changes(repo_path: Path, base_ref: str = "HEAD") -> list[ChangeEntry]:
+    """@brief 收集指定基准提交到当前工作区的变更和未跟踪文件。"""
 
     name_status_output = _run_git(
-        ["diff", "--name-status", "--relative", "HEAD", "--", "."],
+        ["diff", "--name-status", "--relative", base_ref, "--", "."],
         repo_path,
     )
     untracked_output = _run_git(

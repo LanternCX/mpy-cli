@@ -63,9 +63,18 @@ def test_readme_lists_all_cli_parameters() -> None:
         "--probe-timeout",
         "--scan-mode",
         "--reset",
+        "--base",
         "--yes",
     ]:
         assert token in content
+
+
+def test_readme_documents_incremental_base_flag() -> None:
+    """@brief README 应说明 incremental 的 --base 参数语义。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+    assert "--base" in content
+    assert "Git 基准提交" in content
 
 
 def test_readme_mentions_device_upload_dir_config() -> None:

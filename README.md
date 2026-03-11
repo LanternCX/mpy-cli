@@ -208,10 +208,11 @@ mpy-cli config
 ### `mpy-cli plan`
 
 ```bash
-mpy-cli plan [--mode {incremental,full}] [--port PORT] [--no-interactive] [--yes]
+mpy-cli plan [--mode {incremental,full}] [--base BASE] [--port PORT] [--no-interactive] [--yes]
 ```
 
 - `--mode`：指定同步模式（`incremental` 或 `full`）。
+- `--base`：仅在 `incremental` 模式生效，指定 Git 基准提交；增量集合按“该基准提交 vs 当前工作区”计算。
 - `--port`：指定设备端口（如 `/dev/ttyACM0` 或 `COM3`）。
 - `--no-interactive`：禁用交互提问。
 - `--yes`：保留参数；在 `plan` 中不会触发写入确认流程。
@@ -260,10 +261,11 @@ mpy-cli list --reset
 ### `mpy-cli deploy`
 
 ```bash
-mpy-cli deploy [--mode {incremental,full}] [--port PORT] [--no-interactive] [--yes]
+mpy-cli deploy [--mode {incremental,full}] [--base BASE] [--port PORT] [--no-interactive] [--yes]
 ```
 
 - `--mode`：指定同步模式（`incremental` 或 `full`）。
+- `--base`：仅在 `incremental` 模式生效，指定 Git 基准提交；未提供时默认对比 `HEAD` 与当前工作区。
 - `--port`：指定设备端口。
 - `--no-interactive`：禁用交互提问。
 - `--yes`：跳过执行前确认（包括全量模式二次确认）。

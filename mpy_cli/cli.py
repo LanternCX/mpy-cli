@@ -118,6 +118,7 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ("plan", "deploy"):
         cmd = subparsers.add_parser(name, help=f"{name} 模式")
         cmd.add_argument("--mode", choices=["full", "incremental"], help="同步模式")
+        cmd.add_argument("--base", help="增量模式的 Git 基准提交")
         cmd.add_argument("--port", help="设备串口，例如 /dev/ttyACM0")
         cmd.add_argument("--yes", action="store_true", help="跳过交互确认")
         cmd.add_argument(
@@ -359,6 +360,10 @@ def _cmd_plan_or_deploy(args: argparse.Namespace) -> int:
             "请选择同步模式", ["incremental", "full"], default=cfg.sync.mode
         )
 
+    if mode == "full" and args.base:
+        print("--base 仅支持 incremental 模式")
+        return 1
+
     backend = MpremoteBackend(binary=cfg.mpremote_binary)
     port = _resolve_port(
         arg_port=args.port,
@@ -386,7 +391,10 @@ def _cmd_plan_or_deploy(args: argparse.Namespace) -> int:
             )
             changes = []
         else:
-            changes = collect_git_changes(source_root)
+            changes = collect_git_changes(
+                source_root,
+                base_ref=args.base or "HEAD",
+            )
             local_files = []
     except GitDiffError as exc:
         print(f"Git 变更读取失败: {exc}")
