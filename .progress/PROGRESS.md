@@ -40,3 +40,4 @@ abc123d (or TBD)
 | 2026-03-09-4 | 2026-03-09 | Reset scan records and keep only last successful snapshot | `.progress/entries/2026/2026-03-09-4.md` | list, reset-cache, successful-snapshot, runtime-db, cli |
 | 2026-03-11-1 | 2026-03-11 | Add incremental base commit support | `.progress/entries/2026/2026-03-11-1.md` | incremental, git-diff, base-ref, cli, deploy |
 | 2026-03-11-2 | 2026-03-11 | Override using-git-worktrees with project git workflow | `.progress/entries/2026/2026-03-11-2.md` | skills, git-workflow, worktree, override, opencode |
+| 2026-03-11-3 | 2026-03-11 | Add short option aliases for CLI commands | `.progress/entries/2026/2026-03-11-3.md` | cli, argparse, short-options, readme, tests |

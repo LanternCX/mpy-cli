@@ -1,6 +1,24 @@
 """Docs and CI presence tests."""
 
+import re
 from pathlib import Path
+
+
+def _readme_section(content: str, command: str) -> str:
+    """@brief 返回 README 中指定命令的小节内容。"""
+
+    marker = f"### `mpy-cli {command}`"
+    start = content.index(marker)
+    next_start = content.find("\n### `mpy-cli ", start + len(marker))
+    if next_start == -1:
+        return content[start:]
+    return content[start:next_start]
+
+
+def _readme_bash_blocks(section: str) -> list[str]:
+    """@brief 返回 README 小节中的 bash 代码块内容。"""
+
+    return re.findall(r"```bash\n(.*?)\n```", section, flags=re.DOTALL)
 
 
 def test_docs_entrypoints() -> None:
@@ -67,6 +85,221 @@ def test_readme_lists_all_cli_parameters() -> None:
         "--yes",
     ]:
         assert token in content
+
+
+def test_readme_lists_short_option_aliases() -> None:
+    """@brief README 应覆盖各命令新增的短参数别名。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+
+    for short_token, long_token in [
+        ("`-f`", "`--force`"),
+        ("`-n`", "`--no-interactive`"),
+        ("`-w`", "`--workers`"),
+        ("`-t`", "`--probe-timeout`"),
+        ("`-s`", "`--scan-mode`"),
+        ("`-r`", "`--reset`"),
+        ("`-m`", "`--mode`"),
+        ("`-b`", "`--base`"),
+        ("`-p`", "`--port`"),
+        ("`-y`", "`--yes`"),
+        ("`-l`", "`--local`"),
+        ("`-r`", "`--remote`"),
+        ("`-f`", "`--path`"),
+        ("`-a`", "`--path`"),
+    ]:
+        assert short_token in content
+        assert long_token in content
+
+
+def test_readme_command_sections_document_alias_pairs() -> None:
+    """@brief README 各命令小节应按命令局部文档化短长参数映射。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+
+    expected = {
+        "init": {
+            "synopsis": [
+                "mpy-cli init",
+                "[-f]",
+                "[--force]",
+                "[-n]",
+                "[--no-interactive]",
+            ],
+            "pairs": [("`-f`", "`--force`"), ("`-n`", "`--no-interactive`")],
+        },
+        "list": {
+            "synopsis": [
+                "mpy-cli list",
+                "[-w N]",
+                "[--workers N]",
+                "[-t SECONDS]",
+                "[--probe-timeout SECONDS]",
+                "[-s MODE]",
+                "[--scan-mode MODE]",
+                "[-r]",
+                "[--reset]",
+            ],
+            "pairs": [
+                ("`-w`", "`--workers`"),
+                ("`-t`", "`--probe-timeout`"),
+                ("`-s`", "`--scan-mode`"),
+                ("`-r`", "`--reset`"),
+            ],
+        },
+        "plan": {
+            "synopsis": [
+                "mpy-cli plan",
+                "[-m {incremental,full}]",
+                "[--mode {incremental,full}]",
+                "[-b BASE]",
+                "[--base BASE]",
+                "[-p PORT]",
+                "[--port PORT]",
+                "[-n]",
+                "[--no-interactive]",
+                "[-y]",
+                "[--yes]",
+            ],
+            "pairs": [
+                ("`-m`", "`--mode`"),
+                ("`-b`", "`--base`"),
+                ("`-p`", "`--port`"),
+                ("`-n`", "`--no-interactive`"),
+                ("`-y`", "`--yes`"),
+            ],
+        },
+        "deploy": {
+            "synopsis": [
+                "mpy-cli deploy",
+                "[-m {incremental,full}]",
+                "[--mode {incremental,full}]",
+                "[-b BASE]",
+                "[--base BASE]",
+                "[-p PORT]",
+                "[--port PORT]",
+                "[-n]",
+                "[--no-interactive]",
+                "[-y]",
+                "[--yes]",
+            ],
+            "pairs": [
+                ("`-m`", "`--mode`"),
+                ("`-b`", "`--base`"),
+                ("`-p`", "`--port`"),
+                ("`-n`", "`--no-interactive`"),
+                ("`-y`", "`--yes`"),
+            ],
+        },
+        "upload": {
+            "synopsis": [
+                "mpy-cli upload",
+                "[-l LOCAL]",
+                "[--local LOCAL]",
+                "[-r REMOTE]",
+                "[--remote REMOTE]",
+                "[-p PORT]",
+                "[--port PORT]",
+                "[-n]",
+                "[--no-interactive]",
+                "[-y]",
+                "[--yes]",
+            ],
+            "pairs": [
+                ("`-l`", "`--local`"),
+                ("`-r`", "`--remote`"),
+                ("`-p`", "`--port`"),
+                ("`-n`", "`--no-interactive`"),
+                ("`-y`", "`--yes`"),
+            ],
+        },
+        "run": {
+            "synopsis": [
+                "mpy-cli run",
+                "[-f PATH]",
+                "[--path PATH]",
+                "[-p PORT]",
+                "[--port PORT]",
+                "[-n]",
+                "[--no-interactive]",
+                "[-y]",
+                "[--yes]",
+            ],
+            "pairs": [
+                ("`-f`", "`--path`"),
+                ("`-p`", "`--port`"),
+                ("`-n`", "`--no-interactive`"),
+                ("`-y`", "`--yes`"),
+            ],
+        },
+        "delete": {
+            "synopsis": [
+                "mpy-cli delete",
+                "[-f PATH]",
+                "[--path PATH]",
+                "[-p PORT]",
+                "[--port PORT]",
+                "[-n]",
+                "[--no-interactive]",
+                "[-y]",
+                "[--yes]",
+            ],
+            "pairs": [
+                ("`-f`", "`--path`"),
+                ("`-p`", "`--port`"),
+                ("`-n`", "`--no-interactive`"),
+                ("`-y`", "`--yes`"),
+            ],
+        },
+        "tree": {
+            "synopsis": [
+                "mpy-cli tree",
+                "[-a PATH]",
+                "[--path PATH]",
+                "[-p PORT]",
+                "[--port PORT]",
+                "[-n]",
+                "[--no-interactive]",
+            ],
+            "pairs": [
+                ("`-a`", "`--path`"),
+                ("`-p`", "`--port`"),
+                ("`-n`", "`--no-interactive`"),
+            ],
+        },
+    }
+
+    for command, requirements in expected.items():
+        section = _readme_section(content, command)
+        for token in requirements["synopsis"]:
+            assert token in section
+        for short_token, long_token in requirements["pairs"]:
+            assert short_token in section
+            assert long_token in section
+
+
+def test_readme_command_sections_include_short_form_examples() -> None:
+    """@brief README 代表性命令小节应提供短参数示例以增强可发现性。"""
+
+    content = Path("README.md").read_text(encoding="utf-8")
+
+    expected = {
+        "list": [
+            ("mpy-cli list", "-w", "-t"),
+            ("mpy-cli list", "-s"),
+            ("mpy-cli list", "-r"),
+        ],
+        "deploy": [("mpy-cli deploy", "-n", "-y")],
+        "upload": [("mpy-cli upload", "-l")],
+        "run": [("mpy-cli run", "-f")],
+        "delete": [("mpy-cli delete", "-f")],
+        "tree": [("mpy-cli tree", "-a")],
+    }
+
+    for command, example_token_groups in expected.items():
+        blocks = _readme_bash_blocks(_readme_section(content, command))
+        for token_group in example_token_groups:
+            assert any(all(token in block for token in token_group) for block in blocks)
 
 
 def test_readme_documents_incremental_base_flag() -> None:

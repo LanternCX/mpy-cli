@@ -81,8 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init_parser = subparsers.add_parser("init", help="初始化配置与运行目录")
-    init_parser.add_argument("--force", action="store_true", help="覆盖已有初始化文件")
     init_parser.add_argument(
+        "-f", "--force", action="store_true", help="覆盖已有初始化文件"
+    )
+    init_parser.add_argument(
+        "-n",
         "--no-interactive",
         action="store_true",
         help="跳过初始化后的交互式配置向导",
@@ -92,24 +95,28 @@ def build_parser() -> argparse.ArgumentParser:
 
     list_parser = subparsers.add_parser("list", help="探测可用的 MicroPython 设备")
     list_parser.add_argument(
+        "-w",
         "--workers",
         type=int,
         default=8,
         help="并发探测线程数，默认 8",
     )
     list_parser.add_argument(
+        "-t",
         "--probe-timeout",
         type=float,
         default=1.0,
         help="单端口探测超时秒数，默认 1.0",
     )
     list_parser.add_argument(
+        "-s",
         "--scan-mode",
         choices=["known-first", "known-only", "full-only"],
         default="known-first",
         help="端口探测策略，默认 known-first",
     )
     list_parser.add_argument(
+        "-r",
         "--reset",
         action="store_true",
         help="清空之前的扫描记录后再执行本次 list",
@@ -117,44 +124,46 @@ def build_parser() -> argparse.ArgumentParser:
 
     for name in ("plan", "deploy"):
         cmd = subparsers.add_parser(name, help=f"{name} 模式")
-        cmd.add_argument("--mode", choices=["full", "incremental"], help="同步模式")
-        cmd.add_argument("--base", help="增量模式的 Git 基准提交")
-        cmd.add_argument("--port", help="设备串口，例如 /dev/ttyACM0")
-        cmd.add_argument("--yes", action="store_true", help="跳过交互确认")
         cmd.add_argument(
-            "--no-interactive", action="store_true", help="禁用 questionary 交互"
+            "-m", "--mode", choices=["full", "incremental"], help="同步模式"
+        )
+        cmd.add_argument("-b", "--base", help="增量模式的 Git 基准提交")
+        cmd.add_argument("-p", "--port", help="设备串口，例如 /dev/ttyACM0")
+        cmd.add_argument("-y", "--yes", action="store_true", help="跳过交互确认")
+        cmd.add_argument(
+            "-n", "--no-interactive", action="store_true", help="禁用 questionary 交互"
         )
 
     upload_parser = subparsers.add_parser("upload", help="手动单文件上传")
-    upload_parser.add_argument("--local", help="本地文件路径")
-    upload_parser.add_argument("--remote", help="设备目标路径")
-    upload_parser.add_argument("--port", help="设备串口，例如 /dev/ttyACM0")
-    upload_parser.add_argument("--yes", action="store_true", help="跳过交互确认")
+    upload_parser.add_argument("-l", "--local", help="本地文件路径")
+    upload_parser.add_argument("-r", "--remote", help="设备目标路径")
+    upload_parser.add_argument("-p", "--port", help="设备串口，例如 /dev/ttyACM0")
+    upload_parser.add_argument("-y", "--yes", action="store_true", help="跳过交互确认")
     upload_parser.add_argument(
-        "--no-interactive", action="store_true", help="禁用 questionary 交互"
+        "-n", "--no-interactive", action="store_true", help="禁用 questionary 交互"
     )
 
     run_parser = subparsers.add_parser("run", help="执行设备端脚本")
-    run_parser.add_argument("--path", help="设备目标文件路径")
-    run_parser.add_argument("--port", help="设备串口，例如 /dev/ttyACM0")
-    run_parser.add_argument("--yes", action="store_true", help="跳过交互确认")
+    run_parser.add_argument("-f", "--path", help="设备目标文件路径")
+    run_parser.add_argument("-p", "--port", help="设备串口，例如 /dev/ttyACM0")
+    run_parser.add_argument("-y", "--yes", action="store_true", help="跳过交互确认")
     run_parser.add_argument(
-        "--no-interactive", action="store_true", help="禁用 questionary 交互"
+        "-n", "--no-interactive", action="store_true", help="禁用 questionary 交互"
     )
 
     delete_parser = subparsers.add_parser("delete", help="删除设备端文件或目录")
-    delete_parser.add_argument("--path", help="设备目标路径")
-    delete_parser.add_argument("--port", help="设备串口，例如 /dev/ttyACM0")
-    delete_parser.add_argument("--yes", action="store_true", help="跳过交互确认")
+    delete_parser.add_argument("-f", "--path", help="设备目标路径")
+    delete_parser.add_argument("-p", "--port", help="设备串口，例如 /dev/ttyACM0")
+    delete_parser.add_argument("-y", "--yes", action="store_true", help="跳过交互确认")
     delete_parser.add_argument(
-        "--no-interactive", action="store_true", help="禁用 questionary 交互"
+        "-n", "--no-interactive", action="store_true", help="禁用 questionary 交互"
     )
 
     tree_parser = subparsers.add_parser("tree", help="读取设备端目录树")
-    tree_parser.add_argument("--path", help="设备目标目录路径")
-    tree_parser.add_argument("--port", help="设备串口，例如 /dev/ttyACM0")
+    tree_parser.add_argument("-a", "--path", help="设备目标目录路径")
+    tree_parser.add_argument("-p", "--port", help="设备串口，例如 /dev/ttyACM0")
     tree_parser.add_argument(
-        "--no-interactive", action="store_true", help="禁用 questionary 交互"
+        "-n", "--no-interactive", action="store_true", help="禁用 questionary 交互"
     )
 
     return parser

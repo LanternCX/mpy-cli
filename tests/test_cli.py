@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mpy_cli.config import AppConfig, SyncConfig
-from mpy_cli.cli import _resolve_port, main
+from mpy_cli.cli import _resolve_port, build_parser, main
 from mpy_cli.executor import ExecutionReport
 from mpy_cli.gitdiff import ChangeEntry
 
@@ -42,6 +42,82 @@ def test_init_command_creates_config_and_ignore(tmp_path: Path, monkeypatch) -> 
     assert (tmp_path / ".mpy-cli.toml").exists()
     assert (tmp_path / ".mpyignore").exists()
     assert (tmp_path / ".mpy-cli").exists()
+
+
+def test_plan_command_accepts_short_options() -> None:
+    """@brief plan 应支持 mode/base/port/no-interactive/yes 的短选项。"""
+
+    parser = build_parser()
+
+    args = parser.parse_args(
+        ["plan", "-m", "full", "-b", "HEAD~1", "-p", "COM3", "-n", "-y"]
+    )
+
+    assert args.command == "plan"
+    assert args.mode == "full"
+    assert args.base == "HEAD~1"
+    assert args.port == "COM3"
+    assert args.no_interactive is True
+    assert args.yes is True
+
+
+def test_cli_short_options_cover_all_approved_mappings() -> None:
+    """@brief 代表性子命令应支持已批准的短选项映射。"""
+
+    parser = build_parser()
+
+    init_args = parser.parse_args(["init", "-f", "-n"])
+    assert init_args.command == "init"
+    assert init_args.force is True
+    assert init_args.no_interactive is True
+
+    list_args = parser.parse_args(
+        ["list", "-w", "4", "-t", "1.5", "-s", "full-only", "-r"]
+    )
+    assert list_args.command == "list"
+    assert list_args.workers == 4
+    assert list_args.probe_timeout == 1.5
+    assert list_args.scan_mode == "full-only"
+    assert list_args.reset is True
+
+    upload_args = parser.parse_args(
+        ["upload", "-l", "main.py", "-r", ":main.py", "-p", "COM3", "-n", "-y"]
+    )
+    assert upload_args.command == "upload"
+    assert upload_args.local == "main.py"
+    assert upload_args.remote == ":main.py"
+    assert upload_args.port == "COM3"
+    assert upload_args.no_interactive is True
+    assert upload_args.yes is True
+
+    run_args = parser.parse_args(["run", "-f", "boot.py", "-p", "COM3", "-n", "-y"])
+    assert run_args.command == "run"
+    assert run_args.path == "boot.py"
+    assert run_args.port == "COM3"
+    assert run_args.no_interactive is True
+    assert run_args.yes is True
+
+    delete_args = parser.parse_args(
+        ["delete", "-f", "old.py", "-p", "COM3", "-n", "-y"]
+    )
+    assert delete_args.command == "delete"
+    assert delete_args.path == "old.py"
+    assert delete_args.port == "COM3"
+    assert delete_args.no_interactive is True
+    assert delete_args.yes is True
+
+
+def test_tree_command_accepts_path_short_option_a() -> None:
+    """@brief tree 应为 path 使用 -a 短选项以避免与其他冲突。"""
+
+    parser = build_parser()
+
+    args = parser.parse_args(["tree", "-a", "lib", "-p", "COM3", "-n"])
+
+    assert args.command == "tree"
+    assert args.path == "lib"
+    assert args.port == "COM3"
+    assert args.no_interactive is True
 
 
 def test_list_command_prints_all_detected_devices_without_config(
